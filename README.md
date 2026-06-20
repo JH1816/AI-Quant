@@ -1,1 +1,1 @@
-# AI-Quan
+# AI-Quant
