@@ -1,0 +1,6 @@
+.env
+data/portfolio.db
+data/reports/
+__pycache__/
+*.py[cod]
+.venv/
