@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Quant Portfolio Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    .prose-quant h1, .prose-quant h2, .prose-quant h3 { color: #38bdf8; margin-top: 1rem; margin-bottom: .4rem; font-weight: 700; }
+    .prose-quant h1 { font-size: 1.3rem; }
+    .prose-quant h2 { font-size: 1.1rem; border-bottom: 1px solid #1e3a5f; padding-bottom: .2rem; }
+    .prose-quant h3 { font-size: .95rem; color: #7dd3fc; }
+    .prose-quant p  { color: #cbd5e1; margin-bottom: .5rem; line-height: 1.6; }
+    .prose-quant ul { list-style: disc; padding-left: 1.5rem; color: #cbd5e1; margin-bottom: .5rem; }
+    .prose-quant li { margin-bottom: .2rem; }
+    .prose-quant strong { color: #f1f5f9; }
+    .prose-quant code { background: #1e293b; color: #7dd3fc; padding: .1rem .3rem; border-radius: .25rem; font-size: .85em; }
+    .prose-quant pre  { background: #1e293b; padding: 1rem; border-radius: .5rem; overflow-x: auto; color: #94a3b8; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0f172a; } ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body class="h-full text-slate-200 dark">
+
+<!-- ── Header ───────────────────────────────────────────────────────────── -->
+<header class="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white font-bold text-sm">AQ</div>
+    <h1 class="text-lg font-semibold tracking-tight">AI Quant Portfolio Tracker</h1>
+  </div>
+  <span id="clock" class="text-xs text-slate-500 font-mono"></span>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-8 space-y-10">
+
+  <!-- ── Portfolio Table ───────────────────────────────────────────────── -->
+  <section>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-base font-semibold text-slate-100">Active Positions</h2>
+      <button onclick="openModal()" class="px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition">+ Add Position</button>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-gray-800 bg-gray-900">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 text-slate-400 text-xs uppercase tracking-wide">
+            <th class="px-4 py-3 text-left">Ticker</th>
+            <th class="px-4 py-3 text-right">Shares</th>
+            <th class="px-4 py-3 text-right">Avg Buy Price</th>
+            <th class="px-4 py-3 text-left">Date Added</th>
+            <th class="px-4 py-3 text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="portfolio-body">
+          <tr><td colspan="5" class="text-center py-10 text-slate-500 text-sm">Loading positions…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Analysis Panel ───────────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-base font-semibold text-slate-100 mb-4">AI Stock Analysis</h2>
+    <div class="flex gap-3">
+      <input id="ticker-input" type="text" placeholder="e.g. AAPL, MSFT, TSLA"
+             class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 uppercase"
+             onkeydown="if(event.key==='Enter') runAnalysis()" />
+      <button onclick="runAnalysis()"
+              class="px-5 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition flex items-center gap-2">
+        <svg id="analyze-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+        </svg>
+        Analyze
+      </button>
+    </div>
+    <div id="analysis-result" class="mt-5 hidden">
+      <div class="rounded-xl border border-gray-800 bg-gray-900 p-6">
+        <p id="analysis-ticker-label" class="text-xs text-brand-400 font-mono mb-3"></p>
+        <div id="analysis-body" class="prose-quant"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Daily Report Panel ────────────────────────────────────────────── -->
+  <section>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-base font-semibold text-slate-100">Daily Portfolio Report</h2>
+      <button onclick="triggerReport()"
+              class="px-3 py-1.5 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium transition flex items-center gap-2">
+        <svg id="report-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+        </svg>
+        Generate Now
+      </button>
+    </div>
+    <div id="report-panel" class="rounded-xl border border-gray-800 bg-gray-900 p-6 min-h-[120px]">
+      <p id="report-placeholder" class="text-slate-500 text-sm">No report loaded. Click "Generate Now" or wait for the scheduled run (Mon–Fri 16:15 EST).</p>
+      <div id="report-body" class="prose-quant hidden"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── Add Position Modal ────────────────────────────────────────────────── -->
+<div id="modal-backdrop" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onclick="if(event.target===this) closeModal()">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+    <h3 class="text-base font-semibold text-slate-100 mb-5">Add / Update Position</h3>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Ticker Symbol</label>
+        <input id="m-ticker" type="text" placeholder="AAPL" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Number of Shares</label>
+        <input id="m-shares" type="number" step="0.001" placeholder="10" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Average Buy Price (USD)</label>
+        <input id="m-price" type="number" step="0.01" placeholder="150.00" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+    </div>
+    <div id="modal-error" class="hidden mt-3 text-red-400 text-xs"></div>
+    <div class="flex gap-3 mt-6">
+      <button onclick="closeModal()" class="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-slate-300 hover:bg-gray-800 transition">Cancel</button>
+      <button onclick="submitPosition()" class="flex-1 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
