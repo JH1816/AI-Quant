@@ -1,3 +1,4 @@
+import json
 import os
 import anthropic
 from dotenv import load_dotenv
@@ -34,8 +35,8 @@ def analyze_ticker(indicator_dict: dict) -> str:
             {
                 "role": "user",
                 "content": (
-                    f"Please analyse the following quantitative data and produce your full report:\n\n"
-                    f"```json\n{indicator_dict}\n```"
+                    "Please analyse the following quantitative data and produce your full report:\n\n"
+                    f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
                 ),
             }
         ],

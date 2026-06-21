@@ -49,10 +49,10 @@ async def run_daily_report():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    # Run Monday–Friday at 16:15 EST (UTC-5 → 21:15 UTC)
+    # Run Monday–Friday at 16:15 Eastern (handles EST/EDT automatically)
     scheduler.add_job(
         run_daily_report,
-        CronTrigger(day_of_week="mon-fri", hour=21, minute=15, timezone="UTC"),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone="America/New_York"),
         id="daily_report",
         replace_existing=True,
     )

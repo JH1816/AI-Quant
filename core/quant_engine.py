@@ -24,6 +24,11 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
     if df.empty:
         raise ValueError(f"No data returned for ticker '{ticker_symbol}'")
 
+    if len(df) < 60:
+        raise ValueError(
+            f"Insufficient data for '{ticker_symbol}': only {len(df)} trading days available (minimum 60 required)."
+        )
+
     # Flatten MultiIndex columns produced when auto_adjust=True
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -66,17 +71,17 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
     vol_ratio  = _safe(latest_vol / vol_ma20) if vol_ma20 else None
 
     # --- MACD component extraction ---
+    _fast, _slow, _sig = 12, 26, 9
     macd_val    = None
     macd_signal = None
     macd_hist   = None
     if macd_df is not None and not macd_df.empty:
-        cols = macd_df.columns.tolist()
-        macd_col    = next((c for c in cols if c.startswith("MACD_") and "s" not in c.lower() and "h" not in c.lower()), None)
-        signal_col  = next((c for c in cols if "MACDs" in c), None)
-        hist_col    = next((c for c in cols if "MACDh" in c), None)
-        macd_val    = _safe(macd_df[macd_col].iloc[-1])    if macd_col    else None
-        macd_signal = _safe(macd_df[signal_col].iloc[-1])  if signal_col  else None
-        macd_hist   = _safe(macd_df[hist_col].iloc[-1])    if hist_col    else None
+        macd_col   = f"MACD_{_fast}_{_slow}_{_sig}"
+        signal_col = f"MACDs_{_fast}_{_slow}_{_sig}"
+        hist_col   = f"MACDh_{_fast}_{_slow}_{_sig}"
+        macd_val    = _safe(macd_df[macd_col].iloc[-1])   if macd_col   in macd_df.columns else None
+        macd_signal = _safe(macd_df[signal_col].iloc[-1]) if signal_col in macd_df.columns else None
+        macd_hist   = _safe(macd_df[hist_col].iloc[-1])   if hist_col   in macd_df.columns else None
 
     # --- BB component extraction ---
     bb_upper  = None

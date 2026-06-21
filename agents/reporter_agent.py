@@ -1,3 +1,4 @@
+import json
 import os
 import anthropic
 from dotenv import load_dotenv
@@ -26,8 +27,8 @@ Be precise, reference actual numbers, and keep the report actionable."""
 def generate_portfolio_report(portfolio_data: list, market_data: dict) -> str:
     content = (
         "Please generate today's Daily Portfolio Health Report based on the following data.\n\n"
-        f"**Active Holdings (database positions):**\n```json\n{portfolio_data}\n```\n\n"
-        f"**Live Market & Quant Indicators:**\n```json\n{market_data}\n```"
+        f"**Active Holdings (database positions):**\n```json\n{json.dumps(portfolio_data, indent=2)}\n```\n\n"
+        f"**Live Market & Quant Indicators:**\n```json\n{json.dumps(market_data, indent=2)}\n```"
     )
 
     message = _client.messages.create(
