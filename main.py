@@ -102,6 +102,16 @@ async def delete_position(ticker: str):
     return {"message": f"Position {ticker.upper()} removed."}
 
 
+@app.get("/api/indicators/{ticker}")
+async def get_indicators(ticker: str):
+    try:
+        return extract_quant_indicators(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Data fetch error: {exc}")
+
+
 @app.get("/api/analyze/{ticker}")
 async def analyze(ticker: str):
     try:

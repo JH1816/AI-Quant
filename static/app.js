@@ -102,6 +102,163 @@ async function submitPosition() {
   }
 }
 
+/* ── Metrics Dashboard ───────────────────────────────────────────────────── */
+function fmt(n, decimals = 2) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+function fmtK(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  return Number(n).toLocaleString();
+}
+
+async function loadMetrics() {
+  const raw = document.getElementById('metrics-input').value.trim().toUpperCase();
+  if (!raw) { showToast('Enter a ticker symbol first.', 'error'); return; }
+
+  const spinner = document.getElementById('metrics-spinner');
+  spinner.classList.remove('hidden');
+  document.getElementById('metrics-result').classList.add('hidden');
+
+  try {
+    const d = await apiFetch(`/api/indicators/${raw}`);
+    renderMetrics(d);
+    document.getElementById('metrics-result').classList.remove('hidden');
+    document.getElementById('metrics-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    showToast(`Metrics error: ${e.message}`, 'error');
+  } finally {
+    spinner.classList.add('hidden');
+  }
+}
+
+function renderMetrics(d) {
+  const close = d.latest_close;
+
+  /* ─ Price card ─ */
+  document.getElementById('md-price').textContent = `$${fmt(close)}`;
+  document.getElementById('md-52w').textContent =
+    `52w: $${fmt(d['52_week_low'])} – $${fmt(d['52_week_high'])}`;
+
+  /* ─ RSI card ─ */
+  const rsi = d.rsi_14;
+  const rsiEl = document.getElementById('md-rsi');
+  const rsiLbl = document.getElementById('md-rsi-label');
+  rsiEl.textContent = rsi != null ? rsi.toFixed(1) : '—';
+  if (rsi == null) { rsiEl.className = 'text-2xl font-bold font-mono text-slate-400'; rsiLbl.textContent = ''; }
+  else if (rsi < 30) { rsiEl.className = 'text-2xl font-bold font-mono text-emerald-400'; rsiLbl.className = 'text-xs font-semibold mt-1 text-emerald-400'; rsiLbl.textContent = 'OVERSOLD'; }
+  else if (rsi < 45) { rsiEl.className = 'text-2xl font-bold font-mono text-yellow-400'; rsiLbl.className = 'text-xs font-semibold mt-1 text-yellow-400'; rsiLbl.textContent = 'WEAK'; }
+  else if (rsi < 55) { rsiEl.className = 'text-2xl font-bold font-mono text-slate-200'; rsiLbl.className = 'text-xs font-semibold mt-1 text-slate-400'; rsiLbl.textContent = 'NEUTRAL'; }
+  else if (rsi < 70) { rsiEl.className = 'text-2xl font-bold font-mono text-orange-400'; rsiLbl.className = 'text-xs font-semibold mt-1 text-orange-400'; rsiLbl.textContent = 'STRONG'; }
+  else { rsiEl.className = 'text-2xl font-bold font-mono text-red-400'; rsiLbl.className = 'text-xs font-semibold mt-1 text-red-400'; rsiLbl.textContent = 'OVERBOUGHT'; }
+
+  /* ─ MACD card ─ */
+  const macd = d.macd.macd; const sig = d.macd.signal; const hist = d.macd.hist;
+  const macdEl = document.getElementById('md-macd');
+  const macdLbl = document.getElementById('md-macd-label');
+  macdEl.textContent = macd != null ? macd.toFixed(3) : '—';
+  const bullish = hist != null && hist > 0;
+  macdEl.className = `text-2xl font-bold font-mono ${bullish ? 'text-emerald-400' : 'text-red-400'}`;
+  macdLbl.className = `text-xs font-semibold mt-1 ${bullish ? 'text-emerald-400' : 'text-red-400'}`;
+  macdLbl.textContent = hist != null ? (bullish ? 'BULLISH' : 'BEARISH') : '';
+
+  /* ─ Optimum Entry card ─ */
+  const oe = d.optimum_entry;
+  document.getElementById('md-entry').textContent = oe ? `$${fmt(oe.price)}` : '—';
+  const sigEl = document.getElementById('md-entry-signal');
+  sigEl.textContent = oe ? oe.signal : '';
+  const sigColors = { 'BUY NOW': 'text-emerald-400', 'ACCUMULATE': 'text-green-400', 'WAIT': 'text-amber-400', 'OVERSOLD': 'text-brand-400' };
+  sigEl.className = `text-xs font-bold mt-1 ${sigColors[oe?.signal] || 'text-slate-400'}`;
+  document.getElementById('md-entry-basis').textContent = oe ? oe.basis : '';
+
+  /* ─ Moving Averages ─ */
+  const smaTips = {
+    'SMA 50':  '50-day average closing price. Short-to-medium term trend. Active traders watch this closely for momentum shifts.',
+    'SMA 100': '100-day average closing price. Medium-term trend. A price crossing above this line is often seen as a bullish signal.',
+    'SMA 200': '200-day average closing price. The most important long-term trend line. Institutions and funds use this to define bull vs bear markets.',
+  };
+  const smaContainer = document.getElementById('md-smas');
+  smaContainer.innerHTML = [['SMA 50', d.sma_50], ['SMA 100', d.sma_100], ['SMA 200', d.sma_200]].map(([lbl, val]) => {
+    const above = val != null && close != null && close > val;
+    const color = val == null ? 'text-slate-400' : above ? 'text-emerald-400' : 'text-red-400';
+    const badge = val == null ? '' : above
+      ? '<span class="text-xs font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">ABOVE ▲</span>'
+      : '<span class="text-xs font-bold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">BELOW ▼</span>';
+    return `<div class="text-center">
+      <span class="tip text-xs text-slate-500 mb-1 inline-block" data-tip="${smaTips[lbl]}">${lbl}<i class="tip-icon">i</i></span>
+      <p class="text-lg font-bold font-mono ${color}">$${fmt(val)}</p>
+      <div class="mt-1">${badge}</div>
+    </div>`;
+  }).join('');
+
+  /* ─ Bollinger Bands ─ */
+  const bb = d.bollinger_bands;
+  const bbTips = {
+    'Upper Band': 'Resistance level — price approaching here may be overbought and due for a pullback.',
+    'Middle Band': 'The 5-day moving average. Acts as a neutral baseline between the upper and lower bands.',
+    'Lower Band': 'Support level — price approaching here may be oversold and due for a bounce.',
+  };
+  document.getElementById('md-bb-values').innerHTML = [
+    ['Upper Band', bb.upper, 'text-red-400'],
+    ['Middle Band', bb.middle, 'text-slate-300'],
+    ['Lower Band', bb.lower, 'text-emerald-400'],
+  ].map(([lbl, val, color]) => `<div class="text-center">
+    <span class="tip text-xs text-slate-500 mb-1 inline-block" data-tip="${bbTips[lbl]}">${lbl}<i class="tip-icon">i</i></span>
+    <p class="text-lg font-bold font-mono ${color}">$${fmt(val)}</p>
+  </div>`).join('');
+
+  if (bb.upper != null && bb.lower != null && close != null) {
+    const pct = Math.min(100, Math.max(0, ((close - bb.lower) / (bb.upper - bb.lower)) * 100));
+    document.getElementById('md-bb-dot').style.left = `${pct}%`;
+    const pos = pct > 80 ? 'Near Upper Band (overbought zone)' : pct < 20 ? 'Near Lower Band (oversold zone)' : 'Within Bands';
+    document.getElementById('md-bb-pos-label').textContent = pos;
+  }
+
+  /* ─ Fibonacci ─ */
+  const fibOrder = [['1.0', '100%'], ['0.618', '61.8%'], ['0.500', '50%'], ['0.382', '38.2%'], ['0.236', '23.6%'], ['0.0', '0%']];
+  document.getElementById('md-fib').innerHTML = fibOrder.map(([key, label]) => {
+    const price = d.fibonacci_levels[key];
+    const isSupport = price != null && close != null && price < close;
+    const isResist  = price != null && close != null && price > close;
+    const isCurrent = price != null && close != null && Math.abs(price - close) / close < 0.02;
+    const tag = isCurrent
+      ? '<span class="text-xs font-bold text-brand-400 bg-brand-400/10 px-1.5 py-0.5 rounded">NEAR</span>'
+      : isSupport
+        ? '<span class="text-xs text-emerald-400/80 bg-emerald-400/10 px-1.5 py-0.5 rounded">Support</span>'
+        : '<span class="text-xs text-red-400/80 bg-red-400/10 px-1.5 py-0.5 rounded">Resistance</span>';
+    return `<div class="flex items-center justify-between py-1 border-b border-gray-800 last:border-0">
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-500 w-10">${label}</span>
+        <span class="text-sm font-mono font-semibold text-slate-200">$${fmt(price)}</span>
+      </div>
+      ${tag}
+    </div>`;
+  }).join('');
+
+  /* ─ Volume ─ */
+  const vol = d.volume;
+  const ratio = vol.ratio_vs_ma;
+  const volColor = ratio == null ? 'text-slate-400' : ratio > 1.5 ? 'text-emerald-400' : ratio < 0.7 ? 'text-red-400' : 'text-slate-300';
+  const volSignal = ratio == null ? '' : ratio > 1.5 ? 'HIGH VOLUME ▲' : ratio < 0.7 ? 'LOW VOLUME ▼' : 'AVERAGE';
+  document.getElementById('md-volume').innerHTML = `
+    <div class="flex justify-between items-center">
+      <span class="tip text-xs text-slate-400" data-tip="The number of shares traded today. Compare this to the 20-day average to gauge interest.">Latest Volume<i class="tip-icon">i</i></span>
+      <span class="text-sm font-mono font-semibold text-slate-200">${fmtK(vol.latest)}</span>
+    </div>
+    <div class="flex justify-between items-center">
+      <span class="tip text-xs text-slate-400" data-tip="The average daily trading volume over the past 20 days. This is the baseline for judging whether today's volume is high or low.">20-Day Avg Volume<i class="tip-icon">i</i></span>
+      <span class="text-sm font-mono font-semibold text-slate-200">${fmtK(vol.ma_20)}</span>
+    </div>
+    <div class="flex justify-between items-center">
+      <span class="tip text-xs text-slate-400" data-tip="Today's volume divided by the 20-day average. Above 1.5× = high conviction move. Below 0.7× = low interest. A big price move on high volume is more reliable than one on low volume.">Ratio vs 20-Day Avg<i class="tip-icon">i</i></span>
+      <span class="text-sm font-mono font-semibold ${volColor}">${ratio != null ? ratio.toFixed(2) + 'x' : '—'}</span>
+    </div>
+    ${volSignal ? `<div class="mt-2 text-center"><span class="text-xs font-bold ${volColor} bg-gray-800 px-3 py-1 rounded-full">${volSignal}</span></div>` : ''}
+  `;
+}
+
 /* ── Analysis ─────────────────────────────────────────────────────────────── */
 async function runAnalysis() {
   const raw    = document.getElementById('ticker-input').value.trim().toUpperCase();

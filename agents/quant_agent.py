@@ -1,11 +1,11 @@
 import json
 import os
-import anthropic
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 _SYSTEM_PROMPT = """You are a Senior Quantitative Trader with 20+ years of experience at top-tier hedge funds.
 You specialise in technical analysis, risk management, and systematic trading strategies.
@@ -25,20 +25,15 @@ When given a quantitative data dictionary for a stock you will produce a structu
 
 Be concise, precise, and data-driven. Always reference the actual numbers from the data provided."""
 
+_model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",
+    system_instruction=_SYSTEM_PROMPT,
+)
+
 
 def analyze_ticker(indicator_dict: dict) -> str:
-    message = _client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=2048,
-        system=_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Please analyse the following quantitative data and produce your full report:\n\n"
-                    f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
-                ),
-            }
-        ],
+    response = _model.generate_content(
+        "Please analyse the following quantitative data and produce your full report:\n\n"
+        f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
     )
-    return message.content[0].text
+    return response.text

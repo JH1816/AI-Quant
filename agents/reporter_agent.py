@@ -1,11 +1,11 @@
 import json
 import os
-import anthropic
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 _SYSTEM_PROMPT = """You are a Chief Portfolio Risk Officer responsible for daily end-of-day portfolio health summaries.
 
@@ -23,6 +23,11 @@ Given a list of active holdings with their latest quant indicators, produce a ho
 
 Be precise, reference actual numbers, and keep the report actionable."""
 
+_model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",
+    system_instruction=_SYSTEM_PROMPT,
+)
+
 
 def generate_portfolio_report(portfolio_data: list, market_data: dict) -> str:
     content = (
@@ -30,11 +35,5 @@ def generate_portfolio_report(portfolio_data: list, market_data: dict) -> str:
         f"**Active Holdings (database positions):**\n```json\n{json.dumps(portfolio_data, indent=2)}\n```\n\n"
         f"**Live Market & Quant Indicators:**\n```json\n{json.dumps(market_data, indent=2)}\n```"
     )
-
-    message = _client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=3000,
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": content}],
-    )
-    return message.content[0].text
+    response = _model.generate_content(content)
+    return response.text

@@ -1,7 +1,6 @@
 import math
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 
 
 def _safe(val):
@@ -17,6 +16,35 @@ def _safe(val):
         return None
 
 
+def _sma(series: pd.Series, length: int) -> pd.Series:
+    return series.rolling(window=length).mean()
+
+
+def _rsi(series: pd.Series, length: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=length - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=length - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def _macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def _bbands(series: pd.Series, length: int = 5, std: float = 2.0):
+    mid = series.rolling(window=length).mean()
+    dev = series.rolling(window=length).std()
+    return mid + std * dev, mid, mid - std * dev
+
+
 def extract_quant_indicators(ticker_symbol: str) -> dict:
     ticker_symbol = ticker_symbol.upper()
     df = yf.download(ticker_symbol, period="1y", interval="1d", progress=False, auto_adjust=True)
@@ -29,7 +57,6 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
             f"Insufficient data for '{ticker_symbol}': only {len(df)} trading days available (minimum 60 required)."
         )
 
-    # Flatten MultiIndex columns produced when auto_adjust=True
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
@@ -39,18 +66,18 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
     vol   = df["Volume"]
 
     # --- SMAs ---
-    sma50  = ta.sma(close, length=50)
-    sma100 = ta.sma(close, length=100)
-    sma200 = ta.sma(close, length=200)
+    sma50  = _sma(close, 50)
+    sma100 = _sma(close, 100)
+    sma200 = _sma(close, 200)
 
     # --- RSI ---
-    rsi = ta.rsi(close, length=14)
+    rsi = _rsi(close, 14)
 
     # --- MACD ---
-    macd_df = ta.macd(close, fast=12, slow=26, signal=9)
+    macd_line, signal_line, histogram = _macd(close, 12, 26, 9)
 
     # --- Bollinger Bands ---
-    bb_df = ta.bbands(close, length=5, std=2.0)
+    bb_upper, bb_middle, bb_lower = _bbands(close, 5, 2.0)
 
     # --- Fibonacci Levels ---
     week52_high = _safe(high.max())
@@ -70,56 +97,80 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
     latest_vol = _safe(vol.iloc[-1])
     vol_ratio  = _safe(latest_vol / vol_ma20) if vol_ma20 else None
 
-    # --- MACD component extraction ---
-    _fast, _slow, _sig = 12, 26, 9
-    macd_val    = None
-    macd_signal = None
-    macd_hist   = None
-    if macd_df is not None and not macd_df.empty:
-        macd_col   = f"MACD_{_fast}_{_slow}_{_sig}"
-        signal_col = f"MACDs_{_fast}_{_slow}_{_sig}"
-        hist_col   = f"MACDh_{_fast}_{_slow}_{_sig}"
-        macd_val    = _safe(macd_df[macd_col].iloc[-1])   if macd_col   in macd_df.columns else None
-        macd_signal = _safe(macd_df[signal_col].iloc[-1]) if signal_col in macd_df.columns else None
-        macd_hist   = _safe(macd_df[hist_col].iloc[-1])   if hist_col   in macd_df.columns else None
-
-    # --- BB component extraction ---
-    bb_upper  = None
-    bb_middle = None
-    bb_lower  = None
-    if bb_df is not None and not bb_df.empty:
-        cols = bb_df.columns.tolist()
-        upper_col  = next((c for c in cols if c.startswith("BBU")), None)
-        mid_col    = next((c for c in cols if c.startswith("BBM")), None)
-        lower_col  = next((c for c in cols if c.startswith("BBL")), None)
-        bb_upper  = _safe(bb_df[upper_col].iloc[-1])  if upper_col  else None
-        bb_middle = _safe(bb_df[mid_col].iloc[-1])    if mid_col    else None
-        bb_lower  = _safe(bb_df[lower_col].iloc[-1])  if lower_col  else None
-
     latest_close = _safe(close.iloc[-1])
+    rsi_val      = _safe(rsi.iloc[-1])
+
+    # --- Optimum Entry Price ---
+    _sma50_val  = _safe(sma50.iloc[-1])
+    _sma100_val = _safe(sma100.iloc[-1])
+    _sma200_val = _safe(sma200.iloc[-1])
+    _bb_lower   = _safe(bb_lower.iloc[-1])
+
+    supports = []
+    for fib_key in ["0.236", "0.382", "0.500"]:
+        v = fib_levels.get(fib_key)
+        if v and latest_close and v < latest_close:
+            supports.append((f"Fib {fib_key}", v))
+    if _bb_lower and latest_close and _bb_lower < latest_close:
+        supports.append(("BB Lower", _bb_lower))
+    for lbl, val in [
+        ("SMA 50",  _sma50_val),
+        ("SMA 100", _sma100_val),
+        ("SMA 200", _sma200_val),
+    ]:
+        if val and latest_close and val < latest_close:
+            supports.append((lbl, val))
+    supports.sort(key=lambda x: x[1], reverse=True)
+
+    if not supports or not latest_close:
+        optimum_entry = {
+            "price": round(latest_close * 0.99, 2) if latest_close else None,
+            "signal": "OVERSOLD",
+            "basis": "Price below all supports — deeply oversold",
+            "support_levels": [],
+        }
+    else:
+        nearest_lbl, nearest_price = supports[0]
+        r = rsi_val or 50
+        if r < 35:
+            ep = round(latest_close * 0.999, 2)
+            sig, basis = "BUY NOW", f"RSI oversold ({r:.1f}) — enter near market"
+        elif r < 50:
+            ep = round(nearest_price * 1.005, 2)
+            sig, basis = "ACCUMULATE", f"Near {nearest_lbl} support (${nearest_price:.2f})"
+        else:
+            ep = round(nearest_price * 0.995, 2)
+            sig, basis = "WAIT", f"Pullback to {nearest_lbl} (${nearest_price:.2f})"
+        optimum_entry = {
+            "price": ep,
+            "signal": sig,
+            "basis": basis,
+            "support_levels": [{"label": l, "price": round(p, 2)} for l, p in supports[:3]],
+        }
 
     return {
         "ticker":         ticker_symbol,
         "latest_close":   latest_close,
-        "sma_50":         _safe(sma50.iloc[-1])  if sma50  is not None else None,
-        "sma_100":        _safe(sma100.iloc[-1]) if sma100 is not None else None,
-        "sma_200":        _safe(sma200.iloc[-1]) if sma200 is not None else None,
-        "rsi_14":         _safe(rsi.iloc[-1])    if rsi    is not None else None,
+        "sma_50":         _safe(sma50.iloc[-1]),
+        "sma_100":        _safe(sma100.iloc[-1]),
+        "sma_200":        _safe(sma200.iloc[-1]),
+        "rsi_14":         rsi_val,
+        "optimum_entry":  optimum_entry,
         "macd": {
-            "macd":   macd_val,
-            "signal": macd_signal,
-            "hist":   macd_hist,
+            "macd":   _safe(macd_line.iloc[-1]),
+            "signal": _safe(signal_line.iloc[-1]),
+            "hist":   _safe(histogram.iloc[-1]),
         },
         "bollinger_bands": {
-            "upper":  bb_upper,
-            "middle": bb_middle,
-            "lower":  bb_lower,
+            "upper":  _safe(bb_upper.iloc[-1]),
+            "middle": _safe(bb_middle.iloc[-1]),
+            "lower":  _safe(bb_lower.iloc[-1]),
         },
         "fibonacci_levels": fib_levels,
         "volume": {
-            "latest":       latest_vol,
-            "ma_20":        vol_ma20,
-            "ratio_vs_ma":  vol_ratio,
+            "latest":      latest_vol,
+            "ma_20":       vol_ma20,
+            "ratio_vs_ma": vol_ratio,
         },
         "52_week_high": week52_high,
         "52_week_low":  week52_low,
