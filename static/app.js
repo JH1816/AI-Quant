@@ -29,27 +29,67 @@ function showToast(msg, type = 'info') {
 }
 
 /* ── Portfolio Table ──────────────────────────────────────────────────────── */
+function pnlCell(val, prefix = '$') {
+  if (val == null) return `<td class="px-4 py-3 text-right tabular-nums text-slate-500">—</td>`;
+  const cls = val >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const sign = val >= 0 ? '+' : '-';
+  const abs = Math.abs(val).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return `<td class="px-4 py-3 text-right tabular-nums font-medium ${cls}">${sign}${prefix}${abs}</td>`;
+}
+
+function pctCell(val) {
+  if (val == null) return `<td class="px-4 py-3 text-right tabular-nums text-slate-500">—</td>`;
+  const cls = val >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const sign = val >= 0 ? '+' : '';
+  return `<td class="px-4 py-3 text-right tabular-nums font-medium ${cls}">${sign}${val.toFixed(2)}%</td>`;
+}
+
 async function loadPortfolio() {
   const tbody = document.getElementById('portfolio-body');
   try {
-    const positions = await apiFetch('/api/portfolio');
+    const positions = await apiFetch('/api/portfolio/enriched');
     if (!positions.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center py-10 text-slate-500 text-sm">No positions yet. Click "+ Add Position" to get started.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-10 text-slate-500 text-sm">No positions yet. Click "+ Add Position" to get started.</td></tr>';
       return;
     }
-    tbody.innerHTML = positions.map(p => `
-      <tr class="border-b border-gray-800 hover:bg-gray-800/50 transition">
-        <td class="px-4 py-3 font-mono font-semibold text-brand-400">${p.ticker}</td>
-        <td class="px-4 py-3 text-right tabular-nums">${Number(p.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
-        <td class="px-4 py-3 text-right tabular-nums text-emerald-400">$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-        <td class="px-4 py-3 text-slate-400 text-xs">${new Date(p.date_added).toLocaleDateString()}</td>
-        <td class="px-4 py-3 text-center">
-          <button onclick="deletePosition('${p.ticker}')"
-                  class="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-700 text-red-300 hover:text-white transition">Remove</button>
-        </td>
-      </tr>`).join('');
+
+    const rows = positions.map(p => {
+      const currentPrice = p.current_price != null
+        ? `$${p.current_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+        : '<span class="text-slate-500">—</span>';
+      return `
+        <tr class="border-b border-gray-800 hover:bg-gray-800/50 transition">
+          <td class="px-4 py-3 font-mono font-semibold text-brand-400">${p.ticker}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${Number(p.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
+          <td class="px-4 py-3 text-right tabular-nums text-slate-300">$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+          <td class="px-4 py-3 text-right tabular-nums text-slate-300">${currentPrice}</td>
+          ${pnlCell(p.unrealised_pnl)}
+          ${pctCell(p.return_pct)}
+          <td class="px-4 py-3 text-slate-400 text-xs">${new Date(p.date_added).toLocaleDateString()}</td>
+          <td class="px-4 py-3 text-center">
+            <button onclick="deletePosition('${p.ticker}')"
+                    class="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-700 text-red-300 hover:text-white transition">Remove</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    // Totals footer
+    const totalValue = positions.reduce((s, p) => p.current_value != null ? s + p.current_value : s, 0);
+    const totalPnl   = positions.reduce((s, p) => p.unrealised_pnl != null ? s + p.unrealised_pnl : s, 0);
+    const hasLive    = positions.some(p => p.current_price != null);
+    const footerPnlCls = totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+    const footerPnlSign = totalPnl >= 0 ? '+' : '-';
+    const footer = hasLive ? `
+      <tr class="border-t-2 border-gray-700 bg-gray-900/80 font-semibold text-xs">
+        <td class="px-4 py-2.5 text-slate-400 uppercase tracking-wide" colspan="3">Portfolio Total</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-200">$${totalValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums ${footerPnlCls}">${footerPnlSign}$${Math.abs(totalPnl).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        <td class="px-4 py-2.5" colspan="3"></td>
+      </tr>` : '';
+
+    tbody.innerHTML = rows + footer;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-red-400 text-sm">${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-10 text-red-400 text-sm">${e.message}</td></tr>`;
   }
 }
 
