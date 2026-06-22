@@ -1,10 +1,7 @@
-import math
 import numpy as np
 import pandas as pd
 import pytest
 from unittest.mock import patch
-
-pandas_ta = pytest.importorskip("pandas_ta", reason="pandas_ta not installed")
 
 from core.quant_engine import extract_quant_indicators, _safe
 

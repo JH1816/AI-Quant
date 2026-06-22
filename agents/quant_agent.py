@@ -1,11 +1,13 @@
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+_client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+_MODEL = "gemini-3.5-flash"
 
 _SYSTEM_PROMPT = """You are a Senior Quantitative Trader with 20+ years of experience at top-tier hedge funds.
 You specialise in technical analysis, risk management, and systematic trading strategies.
@@ -25,15 +27,13 @@ When given a quantitative data dictionary for a stock you will produce a structu
 
 Be concise, precise, and data-driven. Always reference the actual numbers from the data provided."""
 
-_model = genai.GenerativeModel(
-    model_name="gemini-3.5-flash",
-    system_instruction=_SYSTEM_PROMPT,
-)
-
-
 def analyze_ticker(indicator_dict: dict) -> str:
-    response = _model.generate_content(
-        "Please analyse the following quantitative data and produce your full report:\n\n"
-        f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
+    response = _client.models.generate_content(
+        model=_MODEL,
+        contents=(
+            "Please analyse the following quantitative data and produce your full report:\n\n"
+            f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
+        ),
+        config=types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
     )
     return response.text

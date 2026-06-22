@@ -1,11 +1,13 @@
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+_client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+_MODEL = "gemini-3.5-flash"
 
 _SYSTEM_PROMPT = """You are a Chief Portfolio Risk Officer responsible for daily end-of-day portfolio health summaries.
 
@@ -23,17 +25,15 @@ Given a list of active holdings with their latest quant indicators, produce a ho
 
 Be precise, reference actual numbers, and keep the report actionable."""
 
-_model = genai.GenerativeModel(
-    model_name="gemini-3.5-flash",
-    system_instruction=_SYSTEM_PROMPT,
-)
-
-
 def generate_portfolio_report(portfolio_data: list, market_data: dict) -> str:
     content = (
         "Please generate today's Daily Portfolio Health Report based on the following data.\n\n"
         f"**Active Holdings (database positions):**\n```json\n{json.dumps(portfolio_data, indent=2)}\n```\n\n"
         f"**Live Market & Quant Indicators:**\n```json\n{json.dumps(market_data, indent=2)}\n```"
     )
-    response = _model.generate_content(content)
+    response = _client.models.generate_content(
+        model=_MODEL,
+        contents=content,
+        config=types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
+    )
     return response.text
