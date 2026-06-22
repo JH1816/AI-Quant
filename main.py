@@ -87,6 +87,32 @@ async def get_portfolio():
     return get_all_positions()
 
 
+@app.get("/api/portfolio/enriched")
+async def get_portfolio_enriched():
+    positions = get_all_positions()
+    enriched = []
+    for pos in positions:
+        try:
+            ind = extract_quant_indicators(pos["ticker"])
+            cp  = ind["latest_close"]
+            enriched.append({
+                **pos,
+                "current_price":  round(cp, 2),
+                "current_value":  round(cp * pos["shares"], 2),
+                "unrealised_pnl": round((cp - pos["average_buy_price"]) * pos["shares"], 2),
+                "return_pct":     round((cp / pos["average_buy_price"] - 1) * 100, 2),
+            })
+        except Exception:
+            enriched.append({
+                **pos,
+                "current_price":  None,
+                "current_value":  None,
+                "unrealised_pnl": None,
+                "return_pct":     None,
+            })
+    return enriched
+
+
 @app.post("/api/portfolio", status_code=201)
 async def create_position(body: PositionIn):
     try:
