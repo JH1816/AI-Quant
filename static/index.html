@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-950">
+<html lang="en" class="h-full">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Quant Portfolio Tracker</title>
+  <title>Quant Portfolio Tracker</title>
+
+  <!-- Apply saved theme before paint to avoid a flash -->
+  <script>
+    (function () {
+      try {
+        // Light is the default; only go dark if the user explicitly chose it.
+        if (localStorage.getItem('theme') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -11,214 +24,341 @@
       theme: {
         extend: {
           colors: {
-            brand: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' }
-          }
+            app:      'rgb(var(--app) / <alpha-value>)',
+            surface:  'rgb(var(--surface) / <alpha-value>)',
+            surface2: 'rgb(var(--surface-2) / <alpha-value>)',
+            line:     'rgb(var(--border) / <alpha-value>)',
+            ink:      'rgb(var(--text) / <alpha-value>)',
+            muted:    'rgb(var(--text-muted) / <alpha-value>)',
+            accent:   'rgb(var(--accent) / <alpha-value>)',
+            'accent-soft': 'rgb(var(--accent) / 0.12)',
+            pos:      'rgb(var(--pos) / <alpha-value>)',
+            neg:      'rgb(var(--neg) / <alpha-value>)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
         }
       }
     }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
-    .prose-quant h1, .prose-quant h2, .prose-quant h3 { color: #38bdf8; margin-top: 1rem; margin-bottom: .4rem; font-weight: 700; }
+    /* ── Theme tokens ── */
+    :root {
+      --app: 247 248 250;        /* #f7f8fa */
+      --surface: 255 255 255;    /* #ffffff */
+      --surface-2: 243 244 247;  /* #f3f4f7 */
+      --border: 226 230 236;     /* #e2e6ec */
+      --text: 30 41 59;          /* slate-800 */
+      --text-muted: 100 116 139; /* slate-500 */
+      --accent: 79 70 229;       /* indigo-600 */
+      --pos: 22 163 74;          /* green-600 */
+      --neg: 220 38 38;          /* red-600 */
+      --shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06);
+    }
+    .dark {
+      --app: 15 17 21;           /* #0f1115 */
+      --surface: 24 27 33;       /* #181b21 */
+      --surface-2: 32 36 44;     /* #20242c */
+      --border: 42 47 57;        /* #2a2f39 */
+      --text: 226 232 240;       /* slate-200 */
+      --text-muted: 148 163 184; /* slate-400 */
+      --accent: 129 140 248;     /* indigo-400 */
+      --pos: 52 211 153;         /* emerald-400 */
+      --neg: 248 113 113;        /* red-400 */
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.4);
+    }
+
+    body { font-family: 'Inter', system-ui, sans-serif; background: rgb(var(--app)); color: rgb(var(--text)); }
+    .card-shadow { box-shadow: var(--shadow); }
+
+    /* ── Markdown prose ── */
+    .prose-quant h1, .prose-quant h2, .prose-quant h3 { color: rgb(var(--text)); margin-top: 1.1rem; margin-bottom: .45rem; font-weight: 700; }
     .prose-quant h1 { font-size: 1.3rem; }
-    .prose-quant h2 { font-size: 1.1rem; border-bottom: 1px solid #1e3a5f; padding-bottom: .2rem; }
-    .prose-quant h3 { font-size: .95rem; color: #7dd3fc; }
-    .prose-quant p  { color: #cbd5e1; margin-bottom: .5rem; line-height: 1.6; }
-    .prose-quant ul { list-style: disc; padding-left: 1.5rem; color: #cbd5e1; margin-bottom: .5rem; }
-    .prose-quant li { margin-bottom: .2rem; }
-    .prose-quant strong { color: #f1f5f9; }
-    .prose-quant code { background: #1e293b; color: #7dd3fc; padding: .1rem .3rem; border-radius: .25rem; font-size: .85em; }
-    .prose-quant pre  { background: #1e293b; padding: 1rem; border-radius: .5rem; overflow-x: auto; color: #94a3b8; }
-    body { font-family: 'Inter', system-ui, sans-serif; }
-    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0f172a; } ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .prose-quant h2 { font-size: 1.05rem; border-bottom: 1px solid rgb(var(--border)); padding-bottom: .25rem; }
+    .prose-quant h3 { font-size: .95rem; color: rgb(var(--accent)); }
+    .prose-quant p  { color: rgb(var(--text-muted)); margin-bottom: .55rem; line-height: 1.65; }
+    .prose-quant ul { list-style: disc; padding-left: 1.5rem; color: rgb(var(--text-muted)); margin-bottom: .55rem; }
+    .prose-quant li { margin-bottom: .25rem; }
+    .prose-quant strong { color: rgb(var(--text)); font-weight: 600; }
+    .prose-quant code { background: rgb(var(--surface-2)); color: rgb(var(--accent)); padding: .1rem .3rem; border-radius: .25rem; font-size: .85em; }
+    .prose-quant pre  { background: rgb(var(--surface-2)); padding: 1rem; border-radius: .5rem; overflow-x: auto; color: rgb(var(--text-muted)); }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 4px; }
+
     /* ── Tooltips ── */
     .tip { position: relative; display: inline-flex; align-items: center; cursor: help; }
     .tip::before {
       content: attr(data-tip);
       position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-      background: #0f172a; color: #94a3b8; padding: .55rem .75rem;
-      border-radius: .5rem; border: 1px solid #334155;
-      width: 250px; font-size: .7rem; line-height: 1.65; font-weight: 400;
+      background: rgb(var(--text)); color: rgb(var(--surface));
+      padding: .55rem .75rem; border-radius: .5rem;
+      width: 250px; font-size: .7rem; line-height: 1.6; font-weight: 400;
       white-space: normal; text-align: left;
       z-index: 9999; pointer-events: none;
       opacity: 0; transition: opacity .15s ease;
-      box-shadow: 0 12px 30px rgba(0,0,0,.6);
+      box-shadow: 0 12px 30px rgba(0,0,0,.25);
     }
     .tip:hover::before { opacity: 1; }
-    .tip-icon { font-size: .65rem; color: #475569; margin-left: .3rem; font-style: normal; border: 1px solid #334155; border-radius: 50%; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .tip:hover .tip-icon { color: #7dd3fc; border-color: #7dd3fc; }
+    .tip-icon { font-size: .6rem; color: rgb(var(--text-muted)); margin-left: .3rem; font-style: normal; border: 1px solid rgb(var(--border)); border-radius: 50%; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .tip:hover .tip-icon { color: rgb(var(--accent)); border-color: rgb(var(--accent)); }
+
+    /* ── Nav tabs ── */
+    .nav-tab { position: relative; padding: .5rem .25rem; font-size: .875rem; font-weight: 500; color: rgb(var(--text-muted)); border-bottom: 2px solid transparent; transition: color .15s; }
+    .nav-tab:hover { color: rgb(var(--text)); }
+    .nav-tab.active { color: rgb(var(--accent)); border-bottom-color: rgb(var(--accent)); }
+
+    [x-section] { animation: fade .2s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   </style>
 </head>
-<body class="h-full text-slate-200 dark">
+<body class="h-full">
 
 <!-- ── Header ───────────────────────────────────────────────────────────── -->
-<header class="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-  <div class="flex items-center gap-3">
-    <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white font-bold text-sm">AQ</div>
-    <h1 class="text-lg font-semibold tracking-tight">AI Quant Portfolio Tracker</h1>
+<header class="sticky top-0 z-40 bg-surface/90 backdrop-blur border-b border-line">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <div class="flex items-center justify-between h-16">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-accent flex items-center justify-center text-white font-bold text-sm shadow">Q</div>
+        <div>
+          <h1 class="text-base font-semibold tracking-tight text-ink leading-none">Quant Portfolio</h1>
+          <p class="text-xs text-muted mt-0.5">Track · Research · Report</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="clock" class="hidden sm:block text-xs text-muted font-mono"></span>
+        <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"
+                class="w-9 h-9 rounded-lg border border-line bg-surface hover:bg-surface2 text-muted hover:text-ink flex items-center justify-center transition">
+          <!-- sun (shown in dark mode) -->
+          <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path stroke-linecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></svg>
+          <!-- moon (shown in light mode) -->
+          <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Sub-nav -->
+    <nav class="flex items-center gap-6 -mb-px">
+      <button class="nav-tab active" data-nav="portfolio" onclick="showSection('portfolio')">Portfolio</button>
+      <button class="nav-tab" data-nav="research" onclick="showSection('research')">Research</button>
+      <button class="nav-tab" data-nav="reports" onclick="showSection('reports')">Reports</button>
+    </nav>
   </div>
-  <span id="clock" class="text-xs text-slate-500 font-mono"></span>
 </header>
 
-<main class="max-w-7xl mx-auto px-4 py-8 space-y-10">
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
 
-  <!-- ── Portfolio Table ───────────────────────────────────────────────── -->
-  <section>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-base font-semibold text-slate-100">Active Positions</h2>
-      <button onclick="openModal()" class="px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition">+ Add Position</button>
+  <!-- ══ PORTFOLIO SECTION ══════════════════════════════════════════════ -->
+  <div x-section id="section-portfolio">
+    <!-- Summary strip -->
+    <div id="portfolio-summary" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <p class="text-xs text-muted">Total Value</p>
+        <p id="sum-value" class="text-xl font-semibold text-ink mt-1 font-mono">—</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <p class="text-xs text-muted">Total P&amp;L</p>
+        <p id="sum-pnl" class="text-xl font-semibold mt-1 font-mono">—</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <p class="text-xs text-muted">Total Return</p>
+        <p id="sum-return" class="text-xl font-semibold mt-1 font-mono">—</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <p class="text-xs text-muted">Positions</p>
+        <p id="sum-count" class="text-xl font-semibold text-ink mt-1 font-mono">—</p>
+      </div>
     </div>
-    <div class="overflow-x-auto rounded-xl border border-gray-800 bg-gray-900">
+
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold text-ink">Your Positions</h2>
+        <p class="text-xs text-muted mt-0.5">Live prices and profit/loss on your holdings.</p>
+      </div>
+      <button onclick="openModal()" class="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition shadow-sm">+ Add Position</button>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-line bg-surface card-shadow">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-gray-800 text-slate-400 text-xs uppercase tracking-wide">
+          <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
             <th class="px-4 py-3 text-left">Ticker</th>
             <th class="px-4 py-3 text-right">Shares</th>
-            <th class="px-4 py-3 text-right">Avg Buy Price</th>
-            <th class="px-4 py-3 text-right">Current Price</th>
+            <th class="px-4 py-3 text-right">Avg Buy</th>
+            <th class="px-4 py-3 text-right">Current</th>
             <th class="px-4 py-3 text-right">P&amp;L</th>
-            <th class="px-4 py-3 text-right">Return %</th>
-            <th class="px-4 py-3 text-left">Date Added</th>
-            <th class="px-4 py-3 text-center">Actions</th>
+            <th class="px-4 py-3 text-right">Return</th>
+            <th class="px-4 py-3 text-left">Added</th>
+            <th class="px-4 py-3 text-center"></th>
           </tr>
         </thead>
         <tbody id="portfolio-body">
-          <tr><td colspan="8" class="text-center py-10 text-slate-500 text-sm">Loading positions…</td></tr>
+          <tr><td colspan="8" class="text-center py-10 text-muted text-sm">Loading positions…</td></tr>
         </tbody>
       </table>
     </div>
-  </section>
+  </div>
 
-  <!-- ── Metrics Dashboard ────────────────────────────────────────────── -->
-  <section>
-    <h2 class="text-base font-semibold text-slate-100 mb-4">Technical Metrics Dashboard</h2>
-    <div class="flex gap-3 mb-5">
-      <input id="metrics-input" type="text" placeholder="e.g. AAPL, MSFT, TSLA"
-             class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 uppercase"
-             onkeydown="if(event.key==='Enter') loadMetrics()" />
-      <button onclick="loadMetrics()"
-              class="px-5 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition flex items-center gap-2">
-        <svg id="metrics-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+  <!-- ══ RESEARCH SECTION ═══════════════════════════════════════════════ -->
+  <div x-section id="section-research" class="hidden">
+    <div class="mb-5">
+      <h2 class="text-lg font-semibold text-ink">Research a Stock</h2>
+      <p class="text-xs text-muted mt-0.5">Enter a ticker to see its chart, a plain-language read, and an optional AI analysis.</p>
+    </div>
+    <div class="flex gap-3 mb-6">
+      <input id="research-input" type="text" placeholder="Search a ticker, e.g. AAPL"
+             class="flex-1 bg-surface border border-line rounded-lg px-4 py-2.5 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent uppercase"
+             onkeydown="if(event.key==='Enter') runResearch()" />
+      <button onclick="runResearch()"
+              class="px-5 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition flex items-center gap-2 shadow-sm">
+        <svg id="research-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
         </svg>
-        Load Metrics
+        Search
       </button>
     </div>
 
-    <div id="metrics-result" class="hidden space-y-4">
-      <!-- Price chart -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Price Chart</span>
-          <div class="flex gap-1" id="chart-period-btns">
-            <button onclick="setChartPeriod('1mo')"  data-period="1mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">1M</button>
-            <button onclick="setChartPeriod('3mo')"  data-period="3mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">3M</button>
-            <button onclick="setChartPeriod('6mo')"  data-period="6mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded bg-gray-700 text-white transition">6M</button>
-            <button onclick="setChartPeriod('1y')"   data-period="1y"   class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">1Y</button>
-            <button onclick="setChartPeriod('2y')"   data-period="2y"   class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">2Y</button>
+    <div id="research-result" class="hidden space-y-5">
+      <!-- Friendly summary -->
+      <div class="bg-surface border border-line rounded-xl p-5 card-shadow">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p id="rs-ticker" class="text-sm font-mono font-semibold text-accent"></p>
+            <p id="rs-price" class="text-3xl font-bold text-ink font-mono mt-1"></p>
+            <p id="rs-range" class="text-xs text-muted mt-1"></p>
+          </div>
+          <div class="text-right">
+            <span class="text-xs text-muted uppercase tracking-wide">Overall read</span>
+            <div id="rs-signal" class="mt-1.5"></div>
+            <p id="rs-signal-note" class="text-xs text-muted mt-1.5 max-w-xs"></p>
           </div>
         </div>
-        <div class="flex gap-4 text-xs text-slate-500 mb-2">
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-yellow-400"></span>SMA 50</span>
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-orange-400"></span>SMA 100</span>
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-red-500"></span>SMA 200</span>
+        <!-- Quick stats -->
+        <div class="grid grid-cols-3 gap-3 mt-5">
+          <div class="bg-surface2 rounded-lg p-3 text-center">
+            <span class="tip text-xs text-muted" data-tip="Relative Strength Index (0–100). Below 30 = oversold (potential buy), above 70 = overbought (potential sell). 40–60 is neutral.">Momentum<i class="tip-icon">i</i></span>
+            <p id="rs-rsi" class="text-lg font-bold font-mono mt-1"></p>
+            <p id="rs-rsi-label" class="text-xs font-semibold"></p>
+          </div>
+          <div class="bg-surface2 rounded-lg p-3 text-center">
+            <span class="tip text-xs text-muted" data-tip="Based on the MACD indicator — whether short-term momentum is pushing the price up (bullish) or down (bearish).">Trend<i class="tip-icon">i</i></span>
+            <p id="rs-trend" class="text-lg font-bold font-mono mt-1"></p>
+            <p id="rs-trend-label" class="text-xs font-semibold"></p>
+          </div>
+          <div class="bg-surface2 rounded-lg p-3 text-center">
+            <span class="tip text-xs text-muted" data-tip="A suggested entry price from nearby support levels and momentum. Technical guide only — not financial advice.">Suggested entry<i class="tip-icon">i</i></span>
+            <p id="rs-entry" class="text-lg font-bold font-mono mt-1 text-accent"></p>
+            <p id="rs-entry-label" class="text-xs font-semibold"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Price chart -->
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-semibold text-ink">Price Chart</span>
+          <div class="flex gap-1" id="chart-period-btns">
+            <button onclick="setChartPeriod('1mo')" data-period="1mo" class="chart-period-btn px-2.5 py-1 text-xs rounded-md text-muted hover:bg-surface2 transition">1M</button>
+            <button onclick="setChartPeriod('3mo')" data-period="3mo" class="chart-period-btn px-2.5 py-1 text-xs rounded-md text-muted hover:bg-surface2 transition">3M</button>
+            <button onclick="setChartPeriod('6mo')" data-period="6mo" class="chart-period-btn px-2.5 py-1 text-xs rounded-md bg-accent-soft text-accent font-medium transition">6M</button>
+            <button onclick="setChartPeriod('1y')"  data-period="1y"  class="chart-period-btn px-2.5 py-1 text-xs rounded-md text-muted hover:bg-surface2 transition">1Y</button>
+            <button onclick="setChartPeriod('2y')"  data-period="2y"  class="chart-period-btn px-2.5 py-1 text-xs rounded-md text-muted hover:bg-surface2 transition">2Y</button>
+          </div>
+        </div>
+        <div class="flex gap-4 text-xs text-muted mb-2">
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#f59e0b"></span>50-day avg</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#ea580c"></span>100-day avg</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#dc2626"></span>200-day avg</span>
         </div>
         <div id="price-chart" style="height:320px;"></div>
         <div id="volume-chart" style="height:90px;" class="mt-1"></div>
       </div>
 
-      <!-- Key metric cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <span class="tip text-xs text-slate-400 uppercase tracking-wide mb-1" data-tip="The latest closing price of the stock — the last recorded price at which it was traded on the market.">Current Price<i class="tip-icon">i</i></span>
-          <p id="md-price" class="text-2xl font-bold font-mono text-white mt-1"></p>
-          <p id="md-52w" class="text-xs text-slate-500 mt-1"></p>
-        </div>
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <span class="tip text-xs text-slate-400 uppercase tracking-wide mb-1" data-tip="Relative Strength Index (0–100). Below 30 = oversold, a potential buy signal. Above 70 = overbought, a potential sell signal. Between 40–60 is neutral. Measures recent buying vs selling momentum.">RSI-14<i class="tip-icon">i</i></span>
-          <p id="md-rsi" class="text-2xl font-bold font-mono mt-1"></p>
-          <p id="md-rsi-label" class="text-xs font-semibold mt-1"></p>
-        </div>
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <span class="tip text-xs text-slate-400 uppercase tracking-wide mb-1" data-tip="Moving Average Convergence Divergence. Compares short-term vs long-term price momentum. A positive (BULLISH) reading means upward pressure; negative (BEARISH) means downward pressure. The value shown is the MACD line.">MACD Signal<i class="tip-icon">i</i></span>
-          <p id="md-macd" class="text-2xl font-bold font-mono mt-1"></p>
-          <p id="md-macd-label" class="text-xs font-semibold mt-1"></p>
-        </div>
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 ring-1 ring-brand-500/40">
-          <span class="tip text-xs text-brand-400 uppercase tracking-wide mb-1" data-tip="A suggested price to consider entering a position, calculated from nearby support levels (Fibonacci, Bollinger lower band, moving averages) and adjusted by RSI momentum. This is a technical guide only — not financial advice.">Optimum Entry<i class="tip-icon">i</i></span>
-          <p id="md-entry" class="text-2xl font-bold font-mono text-brand-300"></p>
-          <p id="md-entry-signal" class="text-xs font-bold mt-1"></p>
-          <p id="md-entry-basis" class="text-xs text-slate-500 mt-0.5 leading-tight"></p>
-        </div>
-      </div>
-
-      <!-- Moving Averages -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <span class="tip text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 block" data-tip="The average closing price over the last N trading days. When price is ABOVE the average, the stock is in an uptrend (bullish). When BELOW, it's in a downtrend (bearish). The 200-day SMA is the most widely watched long-term trend line by institutions.">Moving Averages vs Price<i class="tip-icon">i</i></span>
-        <div class="grid grid-cols-3 gap-4" id="md-smas"></div>
-      </div>
-
-      <!-- Bollinger Bands -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <span class="tip text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 block" data-tip="A volatility channel around a moving average. The Upper Band acts as resistance (overbought zone) and the Lower Band as support (oversold zone). The dot on the bar shows where the current price sits. Wider bands = higher volatility.">Bollinger Bands <span class="text-slate-600 font-normal">(5-period, 2σ)</span><i class="tip-icon">i</i></span>
-        <div class="grid grid-cols-3 gap-4 mb-4" id="md-bb-values"></div>
-        <div class="relative h-4 rounded-full bg-gray-800">
-          <div id="md-bb-fill" class="absolute inset-y-0 rounded-full bg-blue-500/20 border border-blue-500/30" style="left:0%;right:0%"></div>
-          <div id="md-bb-dot" class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-brand-400 border-2 border-gray-900 shadow-lg" style="left:50%"></div>
-        </div>
-        <div class="flex justify-between text-xs text-slate-500 mt-1.5 px-0.5">
-          <span id="md-bb-lower-label">Lower</span>
-          <span id="md-bb-pos-label" class="text-slate-300"></span>
-          <span id="md-bb-upper-label">Upper</span>
+      <!-- Technical details (collapsible) -->
+      <div class="bg-surface border border-line rounded-xl card-shadow">
+        <button onclick="toggleDetails()" class="w-full flex items-center justify-between px-5 py-3.5 text-left">
+          <span class="text-sm font-semibold text-ink">Technical details</span>
+          <svg id="details-chevron" class="w-4 h-4 text-muted transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div id="details-body" class="hidden px-5 pb-5 space-y-4">
+          <!-- Moving averages -->
+          <div>
+            <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="The average closing price over the last N trading days. Price ABOVE the average = uptrend (bullish); BELOW = downtrend. The 200-day is the most watched long-term trend line.">Moving Averages vs Price<i class="tip-icon">i</i></span>
+            <div class="grid grid-cols-3 gap-4" id="md-smas"></div>
+          </div>
+          <!-- Bollinger -->
+          <div class="pt-4 border-t border-line">
+            <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="A volatility channel around a moving average. The upper band is resistance (overbought), the lower band is support (oversold). The dot shows where the current price sits.">Price Range / Volatility<i class="tip-icon">i</i></span>
+            <div class="grid grid-cols-3 gap-4 mb-4" id="md-bb-values"></div>
+            <div class="relative h-3 rounded-full bg-surface2">
+              <div id="md-bb-dot" class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-accent border-2 border-surface shadow" style="left:50%"></div>
+            </div>
+            <div class="flex justify-between text-xs text-muted mt-1.5">
+              <span>Lower</span>
+              <span id="md-bb-pos-label" class="text-ink"></span>
+              <span>Upper</span>
+            </div>
+          </div>
+          <!-- Fib + Volume -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-line">
+            <div>
+              <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="Price levels based on the 52-week high/low using Fibonacci ratios. Levels below price act as support; levels above act as resistance.">Key Price Levels<i class="tip-icon">i</i></span>
+              <div id="md-fib" class="space-y-2"></div>
+            </div>
+            <div>
+              <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="Shares traded. High volume (above 1.5× the 20-day average) confirms a price move has conviction; low volume moves are weaker.">Trading Volume<i class="tip-icon">i</i></span>
+              <div id="md-volume" class="space-y-3"></div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Fibonacci + Volume -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <span class="tip text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 block" data-tip="Price levels based on the 52-week high and low, using Fibonacci ratios (23.6%, 38.2%, 50%, 61.8%). These are areas where price historically tends to pause or reverse. Levels below the current price are Support (potential bounce zones); levels above are Resistance (potential ceiling).">Fibonacci Retracement <span class="text-slate-600 font-normal">(52-week range)</span><i class="tip-icon">i</i></span>
-          <div id="md-fib" class="space-y-2"></div>
+      <!-- AI analysis -->
+      <div class="bg-surface border border-line rounded-xl p-5 card-shadow">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-semibold text-ink">AI Analysis</h3>
+            <p class="text-xs text-muted mt-0.5">A senior-trader-style breakdown of this stock.</p>
+          </div>
+          <button onclick="runAnalysis()"
+                  class="px-4 py-2 rounded-lg border border-accent text-accent hover:bg-accent-soft text-sm font-medium transition flex items-center gap-2">
+            <svg id="analyze-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+            </svg>
+            Generate
+          </button>
         </div>
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <span class="tip text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 block" data-tip="The number of shares traded. High volume (above 1.5× the 20-day average) confirms that a price move has conviction behind it. Low volume moves are weaker and more likely to reverse. Watch volume alongside price direction.">Volume Profile<i class="tip-icon">i</i></span>
-          <div id="md-volume" class="space-y-3"></div>
+        <div id="analysis-result" class="hidden">
+          <p id="analysis-ticker-label" class="text-xs text-accent font-mono mb-3"></p>
+          <div id="analysis-body" class="prose-quant"></div>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Analysis Panel ───────────────────────────────────────────────── -->
-  <section>
-    <h2 class="text-base font-semibold text-slate-100 mb-4">AI Stock Analysis</h2>
-    <div class="flex gap-3">
-      <input id="ticker-input" type="text" placeholder="e.g. AAPL, MSFT, TSLA"
-             class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 uppercase"
-             onkeydown="if(event.key==='Enter') runAnalysis()" />
-      <button onclick="runAnalysis()"
-              class="px-5 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition flex items-center gap-2">
-        <svg id="analyze-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-        </svg>
-        Analyze
-      </button>
-    </div>
-    <div id="analysis-result" class="mt-5 hidden">
-      <div class="rounded-xl border border-gray-800 bg-gray-900 p-6">
-        <p id="analysis-ticker-label" class="text-xs text-brand-400 font-mono mb-3"></p>
-        <div id="analysis-body" class="prose-quant"></div>
+        <p id="analysis-placeholder" class="text-muted text-sm">Click "Generate" for an AI-written technical analysis of this ticker.</p>
       </div>
     </div>
-  </section>
 
-  <!-- ── Daily Report Panel ────────────────────────────────────────────── -->
-  <section>
+    <div id="research-empty" class="text-center py-16 text-muted text-sm">
+      Search a ticker above to get started.
+    </div>
+  </div>
+
+  <!-- ══ REPORTS SECTION ════════════════════════════════════════════════ -->
+  <div x-section id="section-reports" class="hidden">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-base font-semibold text-slate-100">Daily Portfolio Report</h2>
+      <div>
+        <h2 class="text-lg font-semibold text-ink">Daily Portfolio Report</h2>
+        <p class="text-xs text-muted mt-0.5">An AI health check across all your holdings. Runs automatically Mon–Fri at 4:15pm ET.</p>
+      </div>
       <button onclick="triggerReport()"
-              class="px-3 py-1.5 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium transition flex items-center gap-2">
+              class="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition flex items-center gap-2 shadow-sm">
         <svg id="report-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
@@ -226,36 +366,36 @@
         Generate Now
       </button>
     </div>
-    <div id="report-panel" class="rounded-xl border border-gray-800 bg-gray-900 p-6 min-h-[120px]">
-      <p id="report-placeholder" class="text-slate-500 text-sm">No report loaded. Click "Generate Now" or wait for the scheduled run (Mon–Fri 16:15 EST).</p>
+    <div class="rounded-xl border border-line bg-surface p-6 min-h-[140px] card-shadow">
+      <p id="report-placeholder" class="text-muted text-sm">No report yet. Click "Generate Now" to create one.</p>
       <div id="report-body" class="prose-quant hidden"></div>
     </div>
-  </section>
+  </div>
 
 </main>
 
 <!-- ── Add Position Modal ────────────────────────────────────────────────── -->
-<div id="modal-backdrop" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onclick="if(event.target===this) closeModal()">
-  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-    <h3 class="text-base font-semibold text-slate-100 mb-5">Add / Update Position</h3>
+<div id="modal-backdrop" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onclick="if(event.target===this) closeModal()">
+  <div class="bg-surface border border-line rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+    <h3 class="text-base font-semibold text-ink mb-5">Add / Update Position</h3>
     <div class="space-y-4">
       <div>
-        <label class="block text-xs text-slate-400 mb-1">Ticker Symbol</label>
-        <input id="m-ticker" type="text" placeholder="AAPL" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label class="block text-xs text-muted mb-1">Ticker Symbol</label>
+        <input id="m-ticker" type="text" placeholder="AAPL" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink uppercase placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
       </div>
       <div>
-        <label class="block text-xs text-slate-400 mb-1">Number of Shares</label>
-        <input id="m-shares" type="number" step="0.001" placeholder="10" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label class="block text-xs text-muted mb-1">Number of Shares</label>
+        <input id="m-shares" type="number" step="0.001" placeholder="10" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
       </div>
       <div>
-        <label class="block text-xs text-slate-400 mb-1">Average Buy Price (USD)</label>
-        <input id="m-price" type="number" step="0.01" placeholder="150.00" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label class="block text-xs text-muted mb-1">Average Buy Price (USD)</label>
+        <input id="m-price" type="number" step="0.01" placeholder="150.00" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
       </div>
     </div>
-    <div id="modal-error" class="hidden mt-3 text-red-400 text-xs"></div>
+    <div id="modal-error" class="hidden mt-3 text-neg text-xs"></div>
     <div class="flex gap-3 mt-6">
-      <button onclick="closeModal()" class="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-slate-300 hover:bg-gray-800 transition">Cancel</button>
-      <button onclick="submitPosition()" class="flex-1 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition">Save</button>
+      <button onclick="closeModal()" class="flex-1 py-2 rounded-lg border border-line text-sm text-muted hover:bg-surface2 transition">Cancel</button>
+      <button onclick="submitPosition()" class="flex-1 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition">Save</button>
     </div>
   </div>
 </div>
