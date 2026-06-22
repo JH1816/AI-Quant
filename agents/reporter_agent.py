@@ -24,7 +24,7 @@ Given a list of active holdings with their latest quant indicators, produce a ho
 Be precise, reference actual numbers, and keep the report actionable."""
 
 _model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.5-flash",
     system_instruction=_SYSTEM_PROMPT,
 )
 

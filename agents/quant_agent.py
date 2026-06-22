@@ -26,7 +26,7 @@ When given a quantitative data dictionary for a stock you will produce a structu
 Be concise, precise, and data-driven. Always reference the actual numbers from the data provided."""
 
 _model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.5-flash",
     system_instruction=_SYSTEM_PROMPT,
 )
 
