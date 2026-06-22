@@ -18,6 +18,7 @@
     }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     .prose-quant h1, .prose-quant h2, .prose-quant h3 { color: #38bdf8; margin-top: 1rem; margin-bottom: .4rem; font-weight: 700; }
     .prose-quant h1 { font-size: 1.3rem; }
@@ -107,6 +108,27 @@
     </div>
 
     <div id="metrics-result" class="hidden space-y-4">
+      <!-- Price chart -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Price Chart</span>
+          <div class="flex gap-1" id="chart-period-btns">
+            <button onclick="setChartPeriod('1mo')"  data-period="1mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">1M</button>
+            <button onclick="setChartPeriod('3mo')"  data-period="3mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">3M</button>
+            <button onclick="setChartPeriod('6mo')"  data-period="6mo"  class="chart-period-btn px-2 py-0.5 text-xs rounded bg-gray-700 text-white transition">6M</button>
+            <button onclick="setChartPeriod('1y')"   data-period="1y"   class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">1Y</button>
+            <button onclick="setChartPeriod('2y')"   data-period="2y"   class="chart-period-btn px-2 py-0.5 text-xs rounded text-slate-400 hover:text-white hover:bg-gray-700 transition">2Y</button>
+          </div>
+        </div>
+        <div class="flex gap-4 text-xs text-slate-500 mb-2">
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-yellow-400"></span>SMA 50</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-orange-400"></span>SMA 100</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5 bg-red-500"></span>SMA 200</span>
+        </div>
+        <div id="price-chart" style="height:320px;"></div>
+        <div id="volume-chart" style="height:90px;" class="mt-1"></div>
+      </div>
+
       <!-- Key metric cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">

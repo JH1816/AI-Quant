@@ -128,6 +128,73 @@ async def delete_position(ticker: str):
     return {"message": f"Position {ticker.upper()} removed."}
 
 
+@app.get("/api/chart/{ticker}")
+async def get_chart(ticker: str, period: str = "6mo"):
+    import yfinance as yf
+    import pandas as pd
+    import math
+
+    ALLOWED_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y"}
+    if period not in ALLOWED_PERIODS:
+        period = "6mo"
+
+    ticker = ticker.upper()
+    df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No data for '{ticker}'")
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    def safe(v):
+        try:
+            f = float(v)
+            return None if (math.isnan(f) or math.isinf(f)) else round(f, 4)
+        except Exception:
+            return None
+
+    close = df["Close"]
+    sma50  = close.rolling(50).mean()
+    sma100 = close.rolling(100).mean()
+    sma200 = close.rolling(200).mean()
+
+    candles, vol_series = [], []
+    sma50_series, sma100_series, sma200_series = [], [], []
+
+    for ts, row in df.iterrows():
+        date_str = ts.strftime("%Y-%m-%d")
+        o, h, l, c = safe(row["Open"]), safe(row["High"]), safe(row["Low"]), safe(row["Close"])
+        v = safe(row["Volume"])
+        if None not in (o, h, l, c):
+            candles.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
+        if v is not None:
+            color = "#26a69a" if (c or 0) >= (o or 0) else "#ef5350"
+            vol_series.append({"time": date_str, "value": v, "color": color})
+
+    for ts, val in sma50.items():
+        v = safe(val)
+        if v is not None:
+            sma50_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
+    for ts, val in sma100.items():
+        v = safe(val)
+        if v is not None:
+            sma100_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
+    for ts, val in sma200.items():
+        v = safe(val)
+        if v is not None:
+            sma200_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
+
+    return {
+        "ticker": ticker,
+        "period": period,
+        "candles": candles,
+        "volume": vol_series,
+        "sma50": sma50_series,
+        "sma100": sma100_series,
+        "sma200": sma200_series,
+    }
+
+
 @app.get("/api/indicators/{ticker}")
 async def get_indicators(ticker: str):
     try:
