@@ -11,7 +11,7 @@
 A FastAPI + vanilla JS single-page app that:
 1. Tracks a stock portfolio (SQLite) with add/remove positions
 2. Fetches live market data via yfinance and computes quant indicators natively
-3. Runs those indicators through Google Gemini (gemini-2.0-flash) to produce a Markdown trade analysis report
+3. Runs those indicators through Google Gemini (gemini-3.5-flash) to produce a Markdown trade analysis report
 4. Generates a daily portfolio health report on a schedule (Mon–Fri 16:15 ET)
 5. Shows a **Technical Metrics Dashboard** with RSI, MACD, Bollinger Bands, Fibonacci levels, volume profile, and an Optimum Entry price signal — all with plain-English tooltip explanations for non-quant users
 
@@ -46,7 +46,7 @@ AI-Quant/
 ## Setup & Running
 
 ### Prerequisites
-- **Python 3.12+** required (google-generativeai does not support Python 3.8)
+- **Python 3.10+** required
 - Virtual env at `.venv/` (not committed)
 
 ### First-time setup
@@ -115,7 +115,7 @@ Collects all support levels below current price (Fib 0.236/0.382/0.500, BB Lower
 CSS-only, no JS library. Uses `::before` pseudo-element on `.tip` class with `data-tip` attribute for the tooltip text. Hover the `ⓘ` icon to see the explanation.
 
 ### Gemini Model
-Both agents use `gemini-2.0-flash`. Model is initialised once at module load with a `system_instruction`. If you want to upgrade to a newer model, change `model_name` in both `agents/quant_agent.py` and `agents/reporter_agent.py`.
+Both agents use `gemini-3.5-flash` (defined in `agents/config.py` as `MODEL_NAME`). Model is lazy-initialised on first LLM call. To change the model, update `MODEL_NAME` in `agents/config.py`.
 
 ### yfinance
 Requires `>=1.4.1` — older versions (0.2.x) are broken against Yahoo Finance's current API and return empty DataFrames or JSONDecodeErrors.

@@ -11,7 +11,7 @@ An AI-driven quantitative portfolio monitoring web application. It combines real
 - **Quantitative Engine** — Fetches daily price data via yfinance and computes SMA (50/100/200), RSI-14, MACD, Bollinger Bands, Fibonacci retracement levels, volume vs. 20-day MA, and an optimum entry price signal.
 - **AI Stock Analysis** — Sends computed indicators to Gemini acting as a Senior Quant Trader, returning a structured Markdown report with entry points, stop-losses, targets, and risk-reward ratios.
 - **Daily Portfolio Reports** — Holistic portfolio health summary across all active holdings, automatically scheduled Mon–Fri at 16:15 EST and available on demand from the dashboard.
-- **Web Dashboard** — Responsive dark-mode SPA built with Tailwind CSS and vanilla JavaScript; renders AI Markdown output via marked.js.
+- **Web Dashboard** — Responsive light/dark-theme SPA built with Tailwind CSS and vanilla JavaScript; renders AI Markdown output via marked.js.
 
 ---
 
@@ -61,7 +61,7 @@ AI-Quant/
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.10+
 - A [Google AI Studio API key](https://aistudio.google.com/app/apikey)
 
 ### Installation

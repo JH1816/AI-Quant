@@ -13,7 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 from core.db_manager import init_db, add_position, remove_position, get_all_positions
-from core.quant_engine import extract_quant_indicators
+from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -130,41 +130,31 @@ async def delete_position(ticker: str):
 
 @app.get("/api/chart/{ticker}")
 async def get_chart(ticker: str, period: str = "6mo"):
-    import yfinance as yf
-    import pandas as pd
-    import math
-
     ALLOWED_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y"}
     if period not in ALLOWED_PERIODS:
         period = "6mo"
 
     ticker = ticker.upper()
-    df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
+    df = _fetch_ohlcv(ticker, period)
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for '{ticker}'")
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    def safe(v):
-        try:
-            f = float(v)
-            return None if (math.isnan(f) or math.isinf(f)) else round(f, 4)
-        except Exception:
-            return None
+    def _r(v):
+        f = _safe(v)
+        return round(f, 4) if f is not None else None
 
     close = df["Close"]
-    sma50  = close.rolling(50).mean()
-    sma100 = close.rolling(100).mean()
-    sma200 = close.rolling(200).mean()
+    sma50  = _sma(close, 50)
+    sma100 = _sma(close, 100)
+    sma200 = _sma(close, 200)
 
     candles, vol_series = [], []
     sma50_series, sma100_series, sma200_series = [], [], []
 
     for ts, row in df.iterrows():
         date_str = ts.strftime("%Y-%m-%d")
-        o, h, l, c = safe(row["Open"]), safe(row["High"]), safe(row["Low"]), safe(row["Close"])
-        v = safe(row["Volume"])
+        o, h, l, c = _r(row["Open"]), _r(row["High"]), _r(row["Low"]), _r(row["Close"])
+        v = _r(row["Volume"])
         if None not in (o, h, l, c):
             candles.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
         if v is not None:
@@ -172,15 +162,15 @@ async def get_chart(ticker: str, period: str = "6mo"):
             vol_series.append({"time": date_str, "value": v, "color": color})
 
     for ts, val in sma50.items():
-        v = safe(val)
+        v = _r(val)
         if v is not None:
             sma50_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
     for ts, val in sma100.items():
-        v = safe(val)
+        v = _r(val)
         if v is not None:
             sma100_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
     for ts, val in sma200.items():
-        v = safe(val)
+        v = _r(val)
         if v is not None:
             sma200_series.append({"time": ts.strftime("%Y-%m-%d"), "value": v})
 

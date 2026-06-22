@@ -1,10 +1,28 @@
 import math
+import time
 import yfinance as yf
 import pandas as pd
 
+_DOWNLOAD_CACHE: dict = {}
+_CACHE_TTL = 300  # seconds; re-fetch after 5 minutes
+
+
+def _fetch_ohlcv(ticker: str, period: str) -> pd.DataFrame:
+    """Download OHLCV data with a 5-minute in-process cache."""
+    key = (ticker, period)
+    now = time.time()
+    cached = _DOWNLOAD_CACHE.get(key)
+    if cached and (now - cached[0]) < _CACHE_TTL:
+        return cached[1].copy()
+    df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    _DOWNLOAD_CACHE[key] = (now, df)
+    return df.copy()
+
 
 def _safe(val):
-    """Convert a scalar to float/int, returning None for NaN/Inf."""
+    """Convert a scalar to float, returning None for NaN/Inf/non-numeric."""
     if val is None:
         return None
     try:
@@ -39,7 +57,7 @@ def _macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     return macd_line, signal_line, histogram
 
 
-def _bbands(series: pd.Series, length: int = 5, std: float = 2.0):
+def _bbands(series: pd.Series, length: int = 20, std: float = 2.0):
     mid = series.rolling(window=length).mean()
     dev = series.rolling(window=length).std()
     return mid + std * dev, mid, mid - std * dev
@@ -47,7 +65,7 @@ def _bbands(series: pd.Series, length: int = 5, std: float = 2.0):
 
 def extract_quant_indicators(ticker_symbol: str) -> dict:
     ticker_symbol = ticker_symbol.upper()
-    df = yf.download(ticker_symbol, period="1y", interval="1d", progress=False, auto_adjust=True)
+    df = _fetch_ohlcv(ticker_symbol, "1y")
 
     if df.empty:
         raise ValueError(f"No data returned for ticker '{ticker_symbol}'")
@@ -56,9 +74,6 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
         raise ValueError(
             f"Insufficient data for '{ticker_symbol}': only {len(df)} trading days available (minimum 60 required)."
         )
-
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
 
     close = df["Close"]
     high  = df["High"]
@@ -76,8 +91,8 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
     # --- MACD ---
     macd_line, signal_line, histogram = _macd(close, 12, 26, 9)
 
-    # --- Bollinger Bands ---
-    bb_upper, bb_middle, bb_lower = _bbands(close, 5, 2.0)
+    # --- Bollinger Bands (standard 20-period) ---
+    bb_upper, bb_middle, bb_lower = _bbands(close, 20, 2.0)
 
     # --- Fibonacci Levels ---
     week52_high = _safe(high.max())
