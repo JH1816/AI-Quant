@@ -142,6 +142,77 @@ async function submitPosition() {
   }
 }
 
+/* ── Price Chart ─────────────────────────────────────────────────────────── */
+let _priceChart = null, _volumeChart = null;
+let _currentChartTicker = null, _currentChartPeriod = '6mo';
+
+function setChartPeriod(period) {
+  _currentChartPeriod = period;
+  document.querySelectorAll('.chart-period-btn').forEach(btn => {
+    const active = btn.dataset.period === period;
+    btn.className = `chart-period-btn px-2 py-0.5 text-xs rounded transition ${active ? 'bg-gray-700 text-white' : 'text-slate-400 hover:text-white hover:bg-gray-700'}`;
+  });
+  if (_currentChartTicker) loadChart(_currentChartTicker, period);
+}
+
+async function loadChart(ticker, period = _currentChartPeriod) {
+  try {
+    const data = await apiFetch(`/api/chart/${ticker}?period=${period}`);
+    renderChart(data);
+  } catch (e) {
+    console.warn('Chart load failed:', e.message);
+  }
+}
+
+function renderChart(data) {
+  const priceEl  = document.getElementById('price-chart');
+  const volumeEl = document.getElementById('volume-chart');
+
+  if (_priceChart)  { _priceChart.remove();  _priceChart  = null; }
+  if (_volumeChart) { _volumeChart.remove(); _volumeChart = null; }
+
+  const chartOpts = {
+    layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
+    grid:   { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+    crosshair: { mode: 1 },
+    rightPriceScale: { borderColor: '#334155' },
+    timeScale: { borderColor: '#334155', timeVisible: false },
+  };
+
+  _priceChart = LightweightCharts.createChart(priceEl, { ...chartOpts, height: 320 });
+  const candleSeries = _priceChart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+  candleSeries.setData(data.candles);
+
+  const sma50s  = _priceChart.addLineSeries({ color: '#facc15', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const sma100s = _priceChart.addLineSeries({ color: '#fb923c', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const sma200s = _priceChart.addLineSeries({ color: '#ef4444', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  sma50s.setData(data.sma50);
+  sma100s.setData(data.sma100);
+  sma200s.setData(data.sma200);
+  _priceChart.timeScale().fitContent();
+
+  _volumeChart = LightweightCharts.createChart(volumeEl, {
+    ...chartOpts,
+    height: 90,
+    rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0 } },
+  });
+  const volSeries = _volumeChart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+  volSeries.setData(data.volume);
+  _volumeChart.timeScale().fitContent();
+
+  // Sync crosshair between charts
+  _priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range) _volumeChart.timeScale().setVisibleLogicalRange(range);
+  });
+  _volumeChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range) _priceChart.timeScale().setVisibleLogicalRange(range);
+  });
+}
+
 /* ── Metrics Dashboard ───────────────────────────────────────────────────── */
 function fmt(n, decimals = 2) {
   if (n == null) return '—';
@@ -167,6 +238,13 @@ async function loadMetrics() {
     renderMetrics(d);
     document.getElementById('metrics-result').classList.remove('hidden');
     document.getElementById('metrics-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    _currentChartTicker = raw;
+    _currentChartPeriod = '6mo';
+    document.querySelectorAll('.chart-period-btn').forEach(btn => {
+      const active = btn.dataset.period === '6mo';
+      btn.className = `chart-period-btn px-2 py-0.5 text-xs rounded transition ${active ? 'bg-gray-700 text-white' : 'text-slate-400 hover:text-white hover:bg-gray-700'}`;
+    });
+    loadChart(raw, '6mo');
   } catch (e) {
     showToast(`Metrics error: ${e.message}`, 'error');
   } finally {
