@@ -81,7 +81,7 @@ async function loadPortfolio() {
   try {
     const positions = await apiFetch('/api/portfolio/enriched');
     if (!positions.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-10 text-muted text-sm">No positions yet. Click "+ Add Position" to get started.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center py-10 text-muted text-sm">No positions yet. Click "+ Record Trade" to get started.</td></tr>';
       summary.classList.add('hidden');
       document.getElementById('portfolio-insights').classList.add('hidden');
       return;
@@ -91,16 +91,22 @@ async function loadPortfolio() {
       const currentPrice = p.current_price != null
         ? `$${p.current_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
         : '<span class="text-muted">—</span>';
+      const avgCost = p.average_buy_price != null
+        ? `$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+        : '—';
       return `
         <tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
           <td class="px-4 py-3 font-mono font-semibold text-accent">${p.ticker}</td>
           <td class="px-4 py-3 text-right tabular-nums text-ink">${Number(p.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-muted">$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+          <td class="px-4 py-3 text-right tabular-nums text-muted">${avgCost}</td>
           <td class="px-4 py-3 text-right tabular-nums text-ink">${currentPrice}</td>
           ${pnlCell(p.unrealised_pnl)}
           ${pctCell(p.return_pct)}
+          ${pnlCell(p.realized_pnl != null ? p.realized_pnl : null)}
           <td class="px-4 py-3 text-muted text-xs">${new Date(p.date_added).toLocaleDateString()}</td>
-          <td class="px-4 py-3 text-center">
+          <td class="px-4 py-3 text-center whitespace-nowrap">
+            <button onclick="openTradeHistory('${p.ticker}')"
+                    class="px-2.5 py-1 text-xs rounded-md text-accent hover:bg-accent-soft transition mr-1">History</button>
             <button onclick="deletePosition('${p.ticker}')"
                     class="px-2.5 py-1 text-xs rounded-md text-neg hover:bg-neg/10 transition">Remove</button>
           </td>
@@ -116,6 +122,8 @@ async function loadPortfolio() {
     const totalRet   = totalCost > 0 ? (totalPnl / totalCost) * 100 : null;
     const hasLive    = positions.some(p => p.current_price != null);
 
+    const totalRealized = positions.reduce((s, p) => s + (p.realized_pnl || 0), 0);
+
     if (hasLive) {
       summary.classList.remove('hidden');
       document.getElementById('sum-value').textContent = `$${fmt(totalValue)}`;
@@ -125,6 +133,9 @@ async function loadPortfolio() {
       const retEl = document.getElementById('sum-return');
       retEl.textContent = totalRet != null ? `${totalRet >= 0 ? '+' : ''}${totalRet.toFixed(2)}%` : '—';
       retEl.className = `text-xl font-semibold mt-1 font-mono ${totalRet >= 0 ? 'text-pos' : 'text-neg'}`;
+      const realEl = document.getElementById('sum-realized');
+      realEl.textContent = `${totalRealized >= 0 ? '+' : '-'}$${fmt(Math.abs(totalRealized))}`;
+      realEl.className = `text-xl font-semibold mt-1 font-mono ${totalRealized >= 0 ? 'text-pos' : 'text-neg'}`;
       document.getElementById('sum-count').textContent = positions.length;
     } else {
       summary.classList.add('hidden');
@@ -132,7 +143,7 @@ async function loadPortfolio() {
 
     loadPortfolioInsights();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
     summary.classList.add('hidden');
     document.getElementById('portfolio-insights').classList.add('hidden');
   }
@@ -201,41 +212,113 @@ async function deletePosition(ticker) {
   }
 }
 
-/* ── Modal ───────────────────────────────────────────────────────────────── */
-function openModal() {
-  document.getElementById('modal-backdrop').classList.remove('hidden');
-  document.getElementById('m-ticker').focus();
-  document.getElementById('modal-error').classList.add('hidden');
+/* ── Trade Modal ─────────────────────────────────────────────────────────── */
+function setTradeSide(side) {
+  document.getElementById('m-side').value = side;
+  const buyBtn  = document.getElementById('m-buy-btn');
+  const sellBtn = document.getElementById('m-sell-btn');
+  if (side === 'BUY') {
+    buyBtn.className  = 'flex-1 py-2 text-sm font-semibold bg-pos/10 text-pos transition';
+    sellBtn.className = 'flex-1 py-2 text-sm font-semibold text-muted hover:bg-surface2 transition';
+  } else {
+    sellBtn.className = 'flex-1 py-2 text-sm font-semibold bg-neg/10 text-neg transition';
+    buyBtn.className  = 'flex-1 py-2 text-sm font-semibold text-muted hover:bg-surface2 transition';
+  }
 }
+
+function openModal(ticker = '') {
+  document.getElementById('modal-backdrop').classList.remove('hidden');
+  document.getElementById('modal-error').classList.add('hidden');
+  setTradeSide('BUY');
+  if (ticker) {
+    document.getElementById('m-ticker').value = ticker;
+    document.getElementById('m-shares').focus();
+  } else {
+    document.getElementById('m-ticker').focus();
+  }
+}
+
 function closeModal() {
   document.getElementById('modal-backdrop').classList.add('hidden');
-  ['m-ticker', 'm-shares', 'm-price'].forEach(id => document.getElementById(id).value = '');
+  ['m-ticker', 'm-shares', 'm-price', 'm-fee', 'm-date'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
 }
 
 async function submitPosition() {
   const ticker = document.getElementById('m-ticker').value.trim().toUpperCase();
+  const side   = document.getElementById('m-side').value;
   const shares = parseFloat(document.getElementById('m-shares').value);
   const price  = parseFloat(document.getElementById('m-price').value);
+  const fee    = parseFloat(document.getElementById('m-fee').value) || 0;
+  const date   = document.getElementById('m-date').value || null;
   const errEl  = document.getElementById('modal-error');
 
   if (!ticker || isNaN(shares) || isNaN(price) || shares <= 0 || price <= 0) {
-    errEl.textContent = 'Please fill all fields with valid positive numbers.';
+    errEl.textContent = 'Please fill ticker, shares and price with valid positive numbers.';
     errEl.classList.remove('hidden');
     return;
   }
   errEl.classList.add('hidden');
 
   try {
-    await apiFetch('/api/portfolio', {
+    await apiFetch('/api/transactions', {
       method: 'POST',
-      body: JSON.stringify({ ticker, shares, average_buy_price: price }),
+      body: JSON.stringify({ ticker, side, shares, price, fee, trade_date: date }),
     });
-    showToast(`${ticker} saved!`, 'success');
+    showToast(`${side} ${shares} ${ticker} recorded.`, 'success');
     closeModal();
     loadPortfolio();
   } catch (e) {
     errEl.textContent = e.message;
     errEl.classList.remove('hidden');
+  }
+}
+
+/* ── Trade History Modal ─────────────────────────────────────────────────── */
+async function openTradeHistory(ticker) {
+  document.getElementById('history-title').textContent = `Trade History — ${ticker}`;
+  document.getElementById('history-backdrop').classList.remove('hidden');
+  const tbody = document.getElementById('history-body');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-muted text-sm">Loading…</td></tr>';
+  try {
+    const txs = await apiFetch(`/api/transactions?ticker=${ticker}`);
+    if (!txs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-muted text-sm">No trades recorded.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = txs.map(t => {
+      const sideCls = t.side === 'BUY' ? 'text-pos bg-pos/10' : 'text-neg bg-neg/10';
+      const dateStr = t.trade_date ? t.trade_date.slice(0, 10) : '—';
+      return `<tr class="border-b border-line last:border-0 hover:bg-surface2/60">
+        <td class="px-3 py-2 text-xs text-muted font-mono">${dateStr}</td>
+        <td class="px-3 py-2 text-center"><span class="text-xs font-bold px-2 py-0.5 rounded-full ${sideCls}">${t.side}</span></td>
+        <td class="px-3 py-2 text-right tabular-nums text-sm font-mono">${Number(t.shares).toLocaleString(undefined,{maximumFractionDigits:4})}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-sm font-mono">$${fmt(t.price)}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-xs text-muted">${t.fee ? '$' + fmt(t.fee) : '—'}</td>
+        <td class="px-3 py-2 text-center">
+          <button onclick="deleteTrade(${t.id},'${ticker}')" class="px-2 py-0.5 text-xs rounded text-neg hover:bg-neg/10 transition">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-neg text-sm">${e.message}</td></tr>`;
+  }
+}
+
+function closeTradeHistory() {
+  document.getElementById('history-backdrop').classList.add('hidden');
+}
+
+async function deleteTrade(txId, ticker) {
+  if (!confirm('Delete this trade? Holdings will be recomputed.')) return;
+  try {
+    await apiFetch(`/api/transactions/${txId}`, { method: 'DELETE' });
+    showToast('Trade deleted.', 'success');
+    openTradeHistory(ticker);
+    loadPortfolio();
+  } catch (e) {
+    showToast(e.message, 'error');
   }
 }
 

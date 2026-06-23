@@ -217,12 +217,12 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
     except Exception:
         div_history = []
 
-    div_yield = _pick(info, "dividendYield", "trailingAnnualDividendYield")
-    # yfinance is inconsistent: dividendYield is sometimes already a percent.
-    if div_yield is not None and div_yield > 1:
-        div_yield = round(_safe(div_yield), 2)
-    else:
-        div_yield = _pct(div_yield)
+    # dividendYield is already a percentage in yfinance (e.g. 2.67 for 2.67%).
+    # trailingAnnualDividendYield is a decimal fraction (e.g. 0.0259 for 2.59%)
+    # and is used only as a fallback when dividendYield is absent.
+    div_yield = _safe(info.get("dividendYield"))
+    if div_yield is None:
+        div_yield = _pct(info.get("trailingAnnualDividendYield"))
 
     dividends = {
         "yield_pct": div_yield,

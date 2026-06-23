@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 from core.db_manager import (
     init_db, add_position, remove_position, get_all_positions,
     add_to_watchlist, remove_from_watchlist, get_watchlist,
+    add_transaction, get_transactions, delete_transaction,
 )
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from core.fundamentals_engine import extract_fundamentals
@@ -36,12 +38,10 @@ async def run_daily_report():
     if not positions:
         return
 
-    market_data = {}
-    for pos in positions:
-        try:
-            market_data[pos["ticker"]] = extract_quant_indicators(pos["ticker"])
-        except Exception as exc:
-            market_data[pos["ticker"]] = {"error": str(exc)}
+    results = await asyncio.gather(
+        *(asyncio.to_thread(_safe_indicators, pos["ticker"]) for pos in positions)
+    )
+    market_data = {pos["ticker"]: res for pos, res in zip(positions, results)}
 
     report_md = generate_portfolio_report(positions, market_data)
 
@@ -89,6 +89,92 @@ class TickerIn(BaseModel):
     ticker: str
 
 
+class TransactionIn(BaseModel):
+    ticker: str
+    side: str
+    shares: float
+    price: float
+    fee: float = 0.0
+    trade_date: str | None = None
+
+
+# ─── Concurrency helpers ──────────────────────────────────────────────────────
+# The per-ticker data functions (extract_quant_indicators / extract_fundamentals)
+# are synchronous, blocking yfinance calls. Fanning them out across the default
+# thread pool keeps the event loop free and makes total latency ≈ the slowest
+# ticker rather than the sum. gather preserves input order.
+
+async def _gather_blocking(func, items):
+    """Run blocking func(item) for each item concurrently in threads, order preserved."""
+    return await asyncio.gather(*(asyncio.to_thread(func, item) for item in items))
+
+
+def _enrich_position(pos: dict) -> dict:
+    """Augment a stored position with live price/value/PnL, or None fields on failure."""
+    try:
+        ind = extract_quant_indicators(pos["ticker"])
+        cp  = ind["latest_close"]
+        return {
+            **pos,
+            "current_price":  round(cp, 2),
+            "current_value":  round(cp * pos["shares"], 2),
+            "unrealised_pnl": round((cp - pos["average_buy_price"]) * pos["shares"], 2),
+            "return_pct":     round((cp / pos["average_buy_price"] - 1) * 100, 2),
+            "realized_pnl":   pos.get("realized_pnl", 0.0),
+        }
+    except Exception:
+        return {
+            **pos,
+            "current_price":  None,
+            "current_value":  None,
+            "unrealised_pnl": None,
+            "return_pct":     None,
+            "realized_pnl":   pos.get("realized_pnl", 0.0),
+        }
+
+
+def _safe_fundamentals(ticker: str):
+    """extract_fundamentals(ticker) or None on failure."""
+    try:
+        return extract_fundamentals(ticker)
+    except Exception:
+        return None
+
+
+def _safe_indicators(ticker: str) -> dict:
+    """extract_quant_indicators(ticker) or an {"error": ...} marker on failure."""
+    try:
+        return extract_quant_indicators(ticker)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _enrich_watchlist_row(row: dict) -> dict:
+    """Build the at-a-glance watchlist row, or a None-filled fallback on failure."""
+    ticker = row["ticker"]
+    try:
+        f = extract_fundamentals(ticker)
+        fv = f["valuation"].get("fair_value") or {}
+        return {
+            "ticker": ticker,
+            "name": f["profile"].get("name"),
+            "sector": f["profile"].get("sector"),
+            "price": f["price"].get("current"),
+            "trailing_pe": f["valuation"].get("trailing_pe"),
+            "dividend_yield_pct": f["dividends"].get("yield_pct"),
+            "fair_value": fv.get("estimate"),
+            "upside_pct": fv.get("upside_pct"),
+            "verdict": fv.get("verdict"),
+            "date_added": row["date_added"],
+        }
+    except Exception:
+        return {
+            "ticker": ticker, "name": None, "sector": None, "price": None,
+            "trailing_pe": None, "dividend_yield_pct": None, "fair_value": None,
+            "upside_pct": None, "verdict": None, "date_added": row["date_added"],
+        }
+
+
 # ─── API Routes ───────────────────────────────────────────────────────────────
 
 @app.get("/api/portfolio")
@@ -98,39 +184,14 @@ async def get_portfolio():
 
 @app.get("/api/portfolio/enriched")
 async def get_portfolio_enriched():
-    positions = get_all_positions()
-    enriched = []
-    for pos in positions:
-        try:
-            ind = extract_quant_indicators(pos["ticker"])
-            cp  = ind["latest_close"]
-            enriched.append({
-                **pos,
-                "current_price":  round(cp, 2),
-                "current_value":  round(cp * pos["shares"], 2),
-                "unrealised_pnl": round((cp - pos["average_buy_price"]) * pos["shares"], 2),
-                "return_pct":     round((cp / pos["average_buy_price"] - 1) * 100, 2),
-            })
-        except Exception:
-            enriched.append({
-                **pos,
-                "current_price":  None,
-                "current_value":  None,
-                "unrealised_pnl": None,
-                "return_pct":     None,
-            })
-    return enriched
+    return await _gather_blocking(_enrich_position, get_all_positions())
 
 
 @app.get("/api/portfolio/insights")
 async def portfolio_insights():
     positions = get_all_positions()
-    data_by_ticker = {}
-    for pos in positions:
-        try:
-            data_by_ticker[pos["ticker"]] = extract_fundamentals(pos["ticker"])
-        except Exception:
-            data_by_ticker[pos["ticker"]] = None
+    results = await _gather_blocking(lambda p: _safe_fundamentals(p["ticker"]), positions)
+    data_by_ticker = {pos["ticker"]: res for pos, res in zip(positions, results)}
     return build_portfolio_insights(positions, data_by_ticker)
 
 
@@ -149,6 +210,48 @@ async def delete_position(ticker: str):
     return {"message": f"Position {ticker.upper()} removed."}
 
 
+# ─── Transaction routes ───────────────────────────────────────────────────────
+
+@app.post("/api/transactions", status_code=201)
+async def create_transaction(body: TransactionIn):
+    side = body.side.upper()
+    if side not in ("BUY", "SELL"):
+        raise HTTPException(status_code=400, detail="side must be BUY or SELL.")
+    if body.shares <= 0 or body.price <= 0:
+        raise HTTPException(status_code=400, detail="shares and price must be positive.")
+    if body.fee < 0:
+        raise HTTPException(status_code=400, detail="fee cannot be negative.")
+
+    if side == "SELL":
+        holdings = {p["ticker"]: p["shares"] for p in get_all_positions()}
+        available = holdings.get(body.ticker.upper(), 0.0)
+        if body.shares > available + 1e-9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot sell {body.shares} shares — only {available} held.",
+            )
+
+    try:
+        tx_id = add_transaction(
+            body.ticker, side, body.shares, body.price,
+            body.fee, body.trade_date,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"message": f"{side} {body.shares} {body.ticker.upper()} recorded.", "id": tx_id}
+
+
+@app.get("/api/transactions")
+async def list_transactions(ticker: str | None = None):
+    return get_transactions(ticker)
+
+
+@app.delete("/api/transactions/{tx_id}")
+async def remove_transaction(tx_id: int):
+    delete_transaction(tx_id)
+    return {"message": f"Transaction {tx_id} deleted."}
+
+
 @app.get("/api/watchlist")
 async def list_watchlist():
     return get_watchlist()
@@ -156,31 +259,7 @@ async def list_watchlist():
 
 @app.get("/api/watchlist/enriched")
 async def list_watchlist_enriched():
-    enriched = []
-    for row in get_watchlist():
-        ticker = row["ticker"]
-        try:
-            f = extract_fundamentals(ticker)
-            fv = f["valuation"].get("fair_value") or {}
-            enriched.append({
-                "ticker": ticker,
-                "name": f["profile"].get("name"),
-                "sector": f["profile"].get("sector"),
-                "price": f["price"].get("current"),
-                "trailing_pe": f["valuation"].get("trailing_pe"),
-                "dividend_yield_pct": f["dividends"].get("yield_pct"),
-                "fair_value": fv.get("estimate"),
-                "upside_pct": fv.get("upside_pct"),
-                "verdict": fv.get("verdict"),
-                "date_added": row["date_added"],
-            })
-        except Exception:
-            enriched.append({
-                "ticker": ticker, "name": None, "sector": None, "price": None,
-                "trailing_pe": None, "dividend_yield_pct": None, "fair_value": None,
-                "upside_pct": None, "verdict": None, "date_added": row["date_added"],
-            })
-    return enriched
+    return await _gather_blocking(_enrich_watchlist_row, get_watchlist())
 
 
 @app.post("/api/watchlist", status_code=201)

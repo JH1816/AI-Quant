@@ -138,6 +138,24 @@ def test_net_margin_series(result):
     assert nm["2023"] == 20.0  # 60/300
 
 
+def test_dividend_yield_pct_stored_as_is(result):
+    # FakeTicker.dividendYield = 1.5 (already a percent from yfinance).
+    # Must be stored as 1.5, NOT multiplied by 100 to 150.
+    assert result["dividends"]["yield_pct"] == 1.5
+
+
+def test_dividend_yield_pct_low_yield():
+    """A sub-1% yield (e.g. AAPL ~0.36%) must not be multiplied by 100."""
+    class LowYieldTicker(FakeTicker):
+        def __init__(self):
+            super().__init__()
+            self.info = {**self.info, "dividendYield": 0.36}
+
+    with patch.object(fe, "_get_ticker", return_value=LowYieldTicker()):
+        r = extract_fundamentals("LOW")
+    assert r["dividends"]["yield_pct"] == pytest.approx(0.36)
+
+
 def test_dividend_history_aggregated_by_year(result):
     hist = {p["year"]: p["value"] for p in result["dividends"]["history"]}
     assert hist["2023"] == pytest.approx(1.2)

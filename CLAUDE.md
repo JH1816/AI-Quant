@@ -40,13 +40,32 @@ pytest tests/test_quant_engine.py::test_bollinger_bands_order -q
 
 **Portfolio insights** (`core/portfolio_insights.py`) — `build_portfolio_insights(positions, data_by_ticker)` is a pure (I/O-free, unit-tested) aggregator that rolls holdings + per-ticker fundamentals into total value, projected annual/monthly dividend income, portfolio yield, sector allocation (grouped + sorted, `None`→"Unknown"), and top income contributors. Exposed at `GET /api/portfolio/insights` (which fetches fundamentals per holding) and rendered as dividend-income + sector-allocation cards under the Portfolio table.
 
-**Database** (`core/db_manager.py`) is a thin SQLite wrapper with two tables: `portfolio(id, ticker, shares, average_buy_price, date_added)` (upsert-on-conflict) and `watchlist(id, ticker, date_added)` (insert-or-ignore). Both created in `init_db()`. `DB_PATH` is monkeypatched in tests via `conftest.py`.
+**Portfolio enriched** — `GET /api/portfolio/enriched` augments each stored position with live `current_price`, `current_value`, `unrealised_pnl`, and `return_pct` by calling `extract_quant_indicators()` per ticker (benefits from the 5-min OHLCV cache). This is the endpoint the Portfolio tab's P&L table actually reads.
+
+**Concurrency pattern** — `extract_quant_indicators()` and `extract_fundamentals()` are synchronous blocking yfinance calls. All multi-ticker endpoints (`/api/portfolio/enriched`, `/api/portfolio/insights`, `/api/watchlist/enriched`) and `run_daily_report()` fan them out concurrently via `asyncio.gather(asyncio.to_thread(...))` using module-level sync helpers (`_enrich_position`, `_safe_fundamentals`, `_enrich_watchlist_row`, `_safe_indicators`) defined in `main.py`. Total latency is ≈ the slowest ticker rather than the sum. Each helper owns its own try/except so per-ticker failures still return `None`-filled fallback rows. Do not revert to serial `for` loops — that blocks the event loop.
+
+**Database** (`core/db_manager.py`) — SQLite with three tables created in `init_db()`. `DB_PATH` is monkeypatched in tests via `conftest.py`.
+- `transactions(id, ticker, side CHECK IN ('BUY','SELL'), shares, price, fee, trade_date)` — the source of truth for all holdings. Every buy and sell is appended here; the portfolio is **never directly mutated**.
+- `portfolio(id, ticker, shares, average_buy_price, date_added)` — legacy table kept only for the one-time migration: if `transactions` is empty on startup and `portfolio` has rows, each row is seeded as an opening BUY transaction.
+- `watchlist(id, ticker, date_added)` (insert-or-ignore).
+
+**Cost-basis engine** (`core/cost_basis.py`) — pure, I/O-free. `compute_holding(trades)` folds a chronological list of BUY/SELL dicts into `{shares, average_buy_price, realized_pnl}` using the **average-cost** method: a SELL realizes `(sell_price − avg_cost) × qty − fee`; remaining shares keep the same average cost. `derive_positions(trades_by_ticker)` returns only open holdings (shares > 0). `get_all_positions()` calls this and returns the same shape as before — `id, ticker, shares, average_buy_price, date_added` — plus `realized_pnl`, so all downstream code is unchanged.
+
+**Transaction API** — `POST /api/transactions` records a trade (validates side ∈ {BUY,SELL}, rejects SELL > current holdings); `GET /api/transactions?ticker=` lists trades; `DELETE /api/transactions/{id}` removes one trade (holdings recompute automatically). The Portfolio tab's "History" button opens a per-ticker trade log with per-row delete.
 
 **Watchlist** — `GET/POST/DELETE /api/watchlist` plus `GET /api/watchlist/enriched`, which fetches fundamentals per ticker and returns price, P/E, dividend yield, and the `fair_value` estimate/upside/verdict for an at-a-glance valuation read. Rendered as the Watchlist tab; ticker rows link into the Fundamentals tab.
 
 **Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with five sections (Portfolio, Research, Fundamentals, Watchlist, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. The Fundamentals tab renders metric grids + year-by-year bar charts via a dependency-free `barChart()` helper in `app.js`; the Portfolio tab adds dividend-income + sector-allocation cards. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
 
-**Scheduled report** fires Mon–Fri 16:15 ET via APScheduler cron job registered in the `lifespan` context manager. Reports are written as `.md` files to `data/reports/` (gitignored).
+**Scheduled report** fires Mon–Fri 16:15 ET via APScheduler cron job registered in the `lifespan` context manager. Reports are written as `.md` files to `data/reports/` (gitignored). `POST /api/report/trigger` manually fires the same job; `GET /api/report/latest` returns the most recent report file's content.
+
+## Testing
+
+`conftest.py` provides two shared fixtures:
+- `tmp_db` — redirects `DB_PATH` to a `tmp_path` file and calls `init_db()`, so DB tests are fully isolated.
+- `mock_ohlcv_df` — a 252-row synthetic OHLCV `DataFrame` (seeded RNG, realistic price walk). Monkeypatch `_fetch_ohlcv` to return this when writing new indicator tests without hitting yfinance.
+
+`tests/test_api_concurrency.py` uses `fastapi.testclient.TestClient` with a `client` fixture that monkeypatches `get_all_positions`, `get_watchlist`, `extract_quant_indicators`, and `extract_fundamentals` in `main`. **Always add route tests to this fixture** rather than constructing a bare `TestClient(app)` inside test functions — the APScheduler singleton in `main.py` will fail on a closed event loop if the lifespan is started more than once per session.
 
 ## Key constraints
 

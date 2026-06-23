@@ -161,18 +161,22 @@
   <!-- ══ PORTFOLIO SECTION ══════════════════════════════════════════════ -->
   <div x-section id="section-portfolio">
     <!-- Summary strip -->
-    <div id="portfolio-summary" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div id="portfolio-summary" class="hidden grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
       <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
         <p class="text-xs text-muted">Total Value</p>
         <p id="sum-value" class="text-xl font-semibold text-ink mt-1 font-mono">—</p>
       </div>
       <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
-        <p class="text-xs text-muted">Total P&amp;L</p>
+        <p class="text-xs text-muted">Unrealised P&amp;L</p>
         <p id="sum-pnl" class="text-xl font-semibold mt-1 font-mono">—</p>
       </div>
       <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
         <p class="text-xs text-muted">Total Return</p>
         <p id="sum-return" class="text-xl font-semibold mt-1 font-mono">—</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
+        <p class="text-xs text-muted">Realized P&amp;L</p>
+        <p id="sum-realized" class="text-xl font-semibold mt-1 font-mono">—</p>
       </div>
       <div class="bg-surface border border-line rounded-xl p-4 card-shadow">
         <p class="text-xs text-muted">Positions</p>
@@ -185,7 +189,7 @@
         <h2 class="text-lg font-semibold text-ink">Your Positions</h2>
         <p class="text-xs text-muted mt-0.5">Live prices and profit/loss on your holdings.</p>
       </div>
-      <button onclick="openModal()" class="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition shadow-sm">+ Add Position</button>
+      <button onclick="openModal()" class="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition shadow-sm">+ Record Trade</button>
     </div>
     <div class="overflow-x-auto rounded-xl border border-line bg-surface card-shadow">
       <table class="w-full text-sm">
@@ -193,16 +197,17 @@
           <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
             <th class="px-4 py-3 text-left">Ticker</th>
             <th class="px-4 py-3 text-right">Shares</th>
-            <th class="px-4 py-3 text-right">Avg Buy</th>
+            <th class="px-4 py-3 text-right">Avg Cost</th>
             <th class="px-4 py-3 text-right">Current</th>
-            <th class="px-4 py-3 text-right">P&amp;L</th>
+            <th class="px-4 py-3 text-right">Unrealised P&amp;L</th>
             <th class="px-4 py-3 text-right">Return</th>
+            <th class="px-4 py-3 text-right">Realized P&amp;L</th>
             <th class="px-4 py-3 text-left">Added</th>
             <th class="px-4 py-3 text-center"></th>
           </tr>
         </thead>
         <tbody id="portfolio-body">
-          <tr><td colspan="8" class="text-center py-10 text-muted text-sm">Loading positions…</td></tr>
+          <tr><td colspan="9" class="text-center py-10 text-muted text-sm">Loading positions…</td></tr>
         </tbody>
       </table>
     </div>
@@ -529,28 +534,74 @@
 
 </main>
 
-<!-- ── Add Position Modal ────────────────────────────────────────────────── -->
+<!-- ── Record Trade Modal ─────────────────────────────────────────────────── -->
 <div id="modal-backdrop" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onclick="if(event.target===this) closeModal()">
   <div class="bg-surface border border-line rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-    <h3 class="text-base font-semibold text-ink mb-5">Add / Update Position</h3>
+    <h3 class="text-base font-semibold text-ink mb-5">Record Trade</h3>
     <div class="space-y-4">
+      <!-- BUY / SELL toggle -->
+      <div>
+        <label class="block text-xs text-muted mb-1">Side</label>
+        <div class="flex rounded-lg overflow-hidden border border-line">
+          <button id="m-buy-btn" onclick="setTradeSide('BUY')"
+                  class="flex-1 py-2 text-sm font-semibold bg-pos/10 text-pos transition">BUY</button>
+          <button id="m-sell-btn" onclick="setTradeSide('SELL')"
+                  class="flex-1 py-2 text-sm font-semibold text-muted hover:bg-surface2 transition">SELL</button>
+        </div>
+        <input id="m-side" type="hidden" value="BUY" />
+      </div>
       <div>
         <label class="block text-xs text-muted mb-1">Ticker Symbol</label>
         <input id="m-ticker" type="text" placeholder="AAPL" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink uppercase placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
       </div>
       <div>
-        <label class="block text-xs text-muted mb-1">Number of Shares</label>
-        <input id="m-shares" type="number" step="0.001" placeholder="10" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
+        <label class="block text-xs text-muted mb-1">Shares</label>
+        <input id="m-shares" type="number" step="0.001" min="0.001" placeholder="10" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
       </div>
       <div>
-        <label class="block text-xs text-muted mb-1">Average Buy Price (USD)</label>
-        <input id="m-price" type="number" step="0.01" placeholder="150.00" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
+        <label class="block text-xs text-muted mb-1">Price per Share (USD)</label>
+        <input id="m-price" type="number" step="0.01" min="0.01" placeholder="150.00" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-muted mb-1">Fee USD (optional)</label>
+          <input id="m-fee" type="number" step="0.01" min="0" placeholder="0.00" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs text-muted mb-1">Trade Date (optional)</label>
+          <input id="m-date" type="date" class="w-full bg-surface2 border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
       </div>
     </div>
     <div id="modal-error" class="hidden mt-3 text-neg text-xs"></div>
     <div class="flex gap-3 mt-6">
       <button onclick="closeModal()" class="flex-1 py-2 rounded-lg border border-line text-sm text-muted hover:bg-surface2 transition">Cancel</button>
-      <button onclick="submitPosition()" class="flex-1 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition">Save</button>
+      <button onclick="submitPosition()" class="flex-1 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition">Save Trade</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Trade History Modal ────────────────────────────────────────────────── -->
+<div id="history-backdrop" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onclick="if(event.target===this) closeTradeHistory()">
+  <div class="bg-surface border border-line rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[80vh] flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <h3 id="history-title" class="text-base font-semibold text-ink">Trade History</h3>
+      <button onclick="closeTradeHistory()" class="text-muted hover:text-ink text-xl leading-none px-1">&times;</button>
+    </div>
+    <div class="overflow-y-auto flex-1">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
+            <th class="px-3 py-2 text-left">Date</th>
+            <th class="px-3 py-2 text-center">Side</th>
+            <th class="px-3 py-2 text-right">Shares</th>
+            <th class="px-3 py-2 text-right">Price</th>
+            <th class="px-3 py-2 text-right">Fee</th>
+            <th class="px-3 py-2 text-center"></th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
     </div>
   </div>
 </div>
