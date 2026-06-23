@@ -51,3 +51,36 @@ def test_multiple_positions_returned(tmp_db):
     positions = dbm.get_all_positions()
     tickers = {p["ticker"] for p in positions}
     assert tickers == {"AAPL", "GOOGL"}
+
+
+# ── Watchlist ───────────────────────────────────────────────────────────────
+
+def test_init_db_creates_watchlist_table(tmp_db):
+    with sqlite3.connect(tmp_db) as conn:
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='watchlist'"
+        ).fetchall()
+    assert len(tables) == 1
+
+
+def test_add_and_get_watchlist(tmp_db):
+    dbm.add_to_watchlist("nvda")
+    items = dbm.get_watchlist()
+    assert len(items) == 1
+    assert items[0]["ticker"] == "NVDA"
+
+
+def test_watchlist_add_is_idempotent(tmp_db):
+    dbm.add_to_watchlist("AAPL")
+    dbm.add_to_watchlist("AAPL")
+    assert len(dbm.get_watchlist()) == 1
+
+
+def test_remove_from_watchlist(tmp_db):
+    dbm.add_to_watchlist("TSLA")
+    dbm.remove_from_watchlist("tsla")
+    assert dbm.get_watchlist() == []
+
+
+def test_remove_nonexistent_watchlist_is_noop(tmp_db):
+    dbm.remove_from_watchlist("NOPE")  # should not raise

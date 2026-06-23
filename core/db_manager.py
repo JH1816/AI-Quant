@@ -21,6 +21,13 @@ def init_db():
                 date_added        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker      TEXT NOT NULL UNIQUE,
+                date_added  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
 
 
@@ -49,5 +56,33 @@ def get_all_positions() -> list[dict]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, ticker, shares, average_buy_price, date_added FROM portfolio ORDER BY date_added DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Watchlist ───────────────────────────────────────────────────────────────
+
+def add_to_watchlist(ticker: str):
+    ticker = ticker.upper()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO watchlist (ticker) VALUES (?) ON CONFLICT(ticker) DO NOTHING",
+            (ticker,),
+        )
+        conn.commit()
+
+
+def remove_from_watchlist(ticker: str):
+    ticker = ticker.upper()
+    with _connect() as conn:
+        conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker,))
+        conn.commit()
+
+
+def get_watchlist() -> list[dict]:
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, ticker, date_added FROM watchlist ORDER BY date_added DESC"
         ).fetchall()
     return [dict(r) for r in rows]

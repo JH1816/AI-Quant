@@ -17,7 +17,7 @@ setInterval(updateClock, 1000);
 
 /* ── Section navigation ─────────────────────────────────────────────────── */
 function showSection(name) {
-  ['portfolio', 'research', 'fundamentals', 'reports'].forEach(s => {
+  ['portfolio', 'research', 'fundamentals', 'watchlist', 'reports'].forEach(s => {
     document.getElementById(`section-${s}`).classList.toggle('hidden', s !== name);
   });
   document.querySelectorAll('[data-nav]').forEach(btn => {
@@ -723,6 +723,78 @@ function renderFundamentals(d) {
   }
 }
 
+/* ── Watchlist ───────────────────────────────────────────────────────────── */
+function verdictBadge(verdict) {
+  if (!verdict) return '<span class="text-muted text-xs">—</span>';
+  const cls = {
+    'Undervalued': 'text-pos bg-pos/10',
+    'Overvalued': 'text-neg bg-neg/10',
+    'Fairly valued': 'text-muted bg-surface2',
+  }[verdict] || 'text-muted bg-surface2';
+  return `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${cls}">${verdict}</span>`;
+}
+
+async function loadWatchlist() {
+  const tbody = document.getElementById('watchlist-body');
+  try {
+    const items = await apiFetch('/api/watchlist/enriched');
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-10 text-muted text-sm">No tickers yet. Add one above to start watching.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(w => {
+      const upCls = w.upside_pct == null ? 'text-muted' : w.upside_pct >= 0 ? 'text-pos' : 'text-neg';
+      const upTxt = w.upside_pct == null ? '' : ` <span class="${upCls} text-xs">(${w.upside_pct >= 0 ? '+' : ''}${w.upside_pct.toFixed(1)}%)</span>`;
+      return `<tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
+        <td class="px-4 py-3">
+          <button onclick="openFundamentalsFor('${w.ticker}')" class="font-mono font-semibold text-accent hover:underline">${w.ticker}</button>
+          ${w.name ? `<p class="text-xs text-muted truncate max-w-[160px]">${w.name}</p>` : ''}
+        </td>
+        <td class="px-4 py-3 text-muted text-xs">${w.sector || '—'}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-ink">${w.price != null ? '$' + fmt(w.price) : '—'}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-muted">${fmt(w.trailing_pe)}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-muted">${w.dividend_yield_pct != null ? w.dividend_yield_pct.toFixed(2) + '%' : '—'}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-ink">${w.fair_value != null ? '$' + fmt(w.fair_value) + upTxt : '—'}</td>
+        <td class="px-4 py-3 text-center">${verdictBadge(w.verdict)}</td>
+        <td class="px-4 py-3 text-center">
+          <button onclick="removeWatchlist('${w.ticker}')" class="px-2.5 py-1 text-xs rounded-md text-neg hover:bg-neg/10 transition">Remove</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
+  }
+}
+
+function openFundamentalsFor(ticker) {
+  showSection('fundamentals');
+  runFundamentals(ticker);
+}
+
+async function addWatchlist() {
+  const input = document.getElementById('wl-input');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) { showToast('Enter a ticker first.', 'error'); return; }
+  try {
+    await apiFetch('/api/watchlist', { method: 'POST', body: JSON.stringify({ ticker }) });
+    input.value = '';
+    showToast(`${ticker} added.`, 'success');
+    loadWatchlist();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function removeWatchlist(ticker) {
+  try {
+    await apiFetch(`/api/watchlist/${ticker}`, { method: 'DELETE' });
+    showToast(`${ticker} removed.`, 'success');
+    loadWatchlist();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
 /* ── Daily Report ─────────────────────────────────────────────────────────── */
 async function loadLatestReport() {
   try {
@@ -762,5 +834,6 @@ function renderReport(markdown) {
 /* ── Init ─────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
+  loadWatchlist();
   loadLatestReport();
 });
