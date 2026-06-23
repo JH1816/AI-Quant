@@ -83,6 +83,7 @@ async function loadPortfolio() {
     if (!positions.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="text-center py-10 text-muted text-sm">No positions yet. Click "+ Add Position" to get started.</td></tr>';
       summary.classList.add('hidden');
+      document.getElementById('portfolio-insights').classList.add('hidden');
       return;
     }
 
@@ -128,9 +129,64 @@ async function loadPortfolio() {
     } else {
       summary.classList.add('hidden');
     }
+
+    loadPortfolioInsights();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="8" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
     summary.classList.add('hidden');
+    document.getElementById('portfolio-insights').classList.add('hidden');
+  }
+}
+
+const SECTOR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#64748b'];
+
+async function loadPortfolioInsights() {
+  const wrap = document.getElementById('portfolio-insights');
+  try {
+    const d = await apiFetch('/api/portfolio/insights');
+    const hasData = d.total_value > 0;
+    if (!hasData) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+
+    document.getElementById('ins-annual').textContent = `$${fmt(d.annual_dividend_income)}`;
+    document.getElementById('ins-monthly').textContent = `$${fmt(d.monthly_dividend_income)}`;
+    document.getElementById('ins-yield').textContent =
+      d.portfolio_yield_pct != null ? `${d.portfolio_yield_pct.toFixed(2)}%` : '—';
+
+    /* Top income contributors */
+    const incomeList = document.getElementById('ins-income-list');
+    if (!d.income_by_ticker.length) {
+      incomeList.innerHTML = '<p class="text-xs text-muted">No dividend-paying holdings.</p>';
+    } else {
+      const maxInc = d.income_by_ticker[0].annual_dividend || 1;
+      incomeList.innerHTML = d.income_by_ticker.slice(0, 5).map(i => {
+        const pct = Math.max(4, (i.annual_dividend / maxInc) * 100);
+        return `<div class="flex items-center gap-3">
+          <span class="font-mono text-xs font-semibold text-accent w-14">${i.ticker}</span>
+          <div class="flex-1 h-2 rounded-full bg-surface2 overflow-hidden">
+            <div class="h-full rounded-full bg-pos" style="width:${pct}%"></div>
+          </div>
+          <span class="font-mono text-xs text-ink w-20 text-right">$${fmt(i.annual_dividend)}/yr</span>
+        </div>`;
+      }).join('');
+    }
+
+    /* Sector allocation */
+    const sectors = document.getElementById('ins-sectors');
+    sectors.innerHTML = d.sector_allocation.map((s, idx) => {
+      const color = SECTOR_COLORS[idx % SECTOR_COLORS.length];
+      return `<div>
+        <div class="flex justify-between text-xs mb-1">
+          <span class="text-ink font-medium">${s.sector}</span>
+          <span class="text-muted font-mono">${s.pct.toFixed(1)}% · $${fmtK(s.value)}</span>
+        </div>
+        <div class="h-2.5 rounded-full bg-surface2 overflow-hidden">
+          <div class="h-full rounded-full" style="width:${s.pct}%;background:${color}"></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    wrap.classList.add('hidden');
   }
 }
 

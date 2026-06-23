@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from core.db_manager import init_db, add_position, remove_position, get_all_positions
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from core.fundamentals_engine import extract_fundamentals
+from core.portfolio_insights import build_portfolio_insights
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -112,6 +113,18 @@ async def get_portfolio_enriched():
                 "return_pct":     None,
             })
     return enriched
+
+
+@app.get("/api/portfolio/insights")
+async def portfolio_insights():
+    positions = get_all_positions()
+    data_by_ticker = {}
+    for pos in positions:
+        try:
+            data_by_ticker[pos["ticker"]] = extract_fundamentals(pos["ticker"])
+        except Exception:
+            data_by_ticker[pos["ticker"]] = None
+    return build_portfolio_insights(positions, data_by_ticker)
 
 
 @app.post("/api/portfolio", status_code=201)

@@ -38,6 +38,8 @@ pytest tests/test_quant_engine.py::test_bollinger_bands_order -q
 
 **Agents** (`agents/quant_agent.py`, `agents/reporter_agent.py`) lazy-init the Gemini model on first call. The shared model name lives in `agents/config.py` as `MODEL_NAME`. Both agents handle quota (429) and blocked-response errors explicitly.
 
+**Portfolio insights** (`core/portfolio_insights.py`) — `build_portfolio_insights(positions, data_by_ticker)` is a pure (I/O-free, unit-tested) aggregator that rolls holdings + per-ticker fundamentals into total value, projected annual/monthly dividend income, portfolio yield, sector allocation (grouped + sorted, `None`→"Unknown"), and top income contributors. Exposed at `GET /api/portfolio/insights` (which fetches fundamentals per holding) and rendered as dividend-income + sector-allocation cards under the Portfolio table.
+
 **Database** (`core/db_manager.py`) is a thin SQLite wrapper — one table `portfolio(id, ticker, shares, average_buy_price, date_added)` with upsert-on-conflict. `DB_PATH` is monkeypatched in tests via `conftest.py`.
 
 **Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with four sections (Portfolio, Research, Fundamentals, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. The Fundamentals tab renders metric grids + year-by-year bar charts via a dependency-free `barChart()` helper in `app.js`. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
