@@ -17,7 +17,7 @@ setInterval(updateClock, 1000);
 
 /* ── Section navigation ─────────────────────────────────────────────────── */
 function showSection(name) {
-  ['portfolio', 'research', 'reports'].forEach(s => {
+  ['portfolio', 'research', 'fundamentals', 'reports'].forEach(s => {
     document.getElementById(`section-${s}`).classList.toggle('hidden', s !== name);
   });
   document.querySelectorAll('[data-nav]').forEach(btn => {
@@ -472,6 +472,161 @@ async function runAnalysis() {
     showToast(`Analysis failed: ${e.message}`, 'error');
   } finally {
     spinner.classList.add('hidden');
+  }
+}
+
+/* ── Fundamentals ────────────────────────────────────────────────────────── */
+function fmtMoney(n) {
+  if (n == null) return '—';
+  const neg = n < 0, a = Math.abs(n);
+  let s;
+  if (a >= 1e12) s = (a / 1e12).toFixed(2) + 'T';
+  else if (a >= 1e9) s = (a / 1e9).toFixed(2) + 'B';
+  else if (a >= 1e6) s = (a / 1e6).toFixed(2) + 'M';
+  else if (a >= 1e3) s = (a / 1e3).toFixed(2) + 'K';
+  else s = a.toFixed(2);
+  return (neg ? '-$' : '$') + s;
+}
+function fmtPct(n) { return n == null ? '—' : `${n.toFixed(2)}%`; }
+function fmtRatio(n) { return n == null ? '—' : `${Number(n).toFixed(2)}×`; }
+
+function metricRow(label, value, tip) {
+  const t = tip ? ` data-tip="${tip}"` : '';
+  const lblCls = tip ? 'tip text-xs text-muted' : 'text-xs text-muted';
+  const icon = tip ? '<i class="tip-icon">i</i>' : '';
+  return `<div class="flex justify-between items-center">
+    <span class="${lblCls}"${t}>${label}${icon}</span>
+    <span class="text-sm font-mono font-semibold text-ink">${value}</span>
+  </div>`;
+}
+
+/* Lightweight bar chart — no external lib. series = [{year, value}]. */
+function barChart(elId, series, format = 'money') {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!series || !series.length) {
+    el.innerHTML = '<p class="text-xs text-muted py-6 text-center">No data available.</p>';
+    return;
+  }
+  const fmtVal = v => format === 'money' ? fmtMoney(v) : format === 'pct' ? fmtPct(v) : Number(v).toFixed(2);
+  const maxAbs = Math.max(...series.map(p => Math.abs(p.value))) || 1;
+  const MAXPX = 96;
+  const cols = series.map(p => {
+    const barPx = Math.max(2, Math.round(Math.abs(p.value) / maxAbs * MAXPX));
+    const cls = p.value < 0 ? 'bg-neg' : 'bg-accent';
+    return `<div class="flex-1 flex flex-col items-center justify-end gap-1" style="min-width:0">
+      <span class="text-[10px] font-mono text-muted whitespace-nowrap">${fmtVal(p.value)}</span>
+      <div class="w-full max-w-[40px] mx-auto rounded-t ${cls}" style="height:${barPx}px" title="${p.year}: ${fmtVal(p.value)}"></div>
+      <span class="text-[10px] text-muted">${p.year}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="flex items-end justify-between gap-2" style="min-height:${MAXPX + 32}px">${cols}</div>`;
+}
+
+function openFundamentals() {
+  if (!_currentChartTicker) return;
+  showSection('fundamentals');
+  runFundamentals(_currentChartTicker);
+}
+
+async function runFundamentals(ticker) {
+  const raw = (ticker || document.getElementById('fund-input').value).trim().toUpperCase();
+  if (!raw) { showToast('Enter a ticker symbol first.', 'error'); return; }
+  document.getElementById('fund-input').value = raw;
+
+  const spinner = document.getElementById('fund-spinner');
+  spinner.classList.remove('hidden');
+  try {
+    const d = await apiFetch(`/api/fundamentals/${raw}`);
+    renderFundamentals(d);
+    document.getElementById('fund-empty').classList.add('hidden');
+    document.getElementById('fund-result').classList.remove('hidden');
+  } catch (e) {
+    showToast(`Lookup failed: ${e.message}`, 'error');
+  } finally {
+    spinner.classList.add('hidden');
+  }
+}
+
+function renderFundamentals(d) {
+  const p = d.profile, pr = d.price, v = d.valuation, prof = d.profitability,
+        h = d.health, div = d.dividends, an = d.analyst, f = d.financials;
+
+  /* Header */
+  document.getElementById('fund-name').textContent = p.name || d.ticker;
+  document.getElementById('fund-ticker').textContent = d.ticker;
+  document.getElementById('fund-sector').textContent =
+    [p.sector, p.industry, p.country].filter(Boolean).join(' · ') || '';
+  document.getElementById('fund-summary').textContent =
+    p.summary ? (p.summary.length > 360 ? p.summary.slice(0, 360) + '…' : p.summary) : '';
+  document.getElementById('fund-price').textContent = pr.current != null ? `$${fmt(pr.current)}` : '—';
+  document.getElementById('fund-mcap').textContent = pr.market_cap != null ? `Market cap ${fmtMoney(pr.market_cap)}` : '';
+
+  /* Analyst target */
+  const anEl = document.getElementById('fund-analyst');
+  if (an.target_mean != null && pr.current != null) {
+    const upside = (an.target_mean / pr.current - 1) * 100;
+    const cls = upside >= 0 ? 'text-pos' : 'text-neg';
+    const rec = an.recommendation ? an.recommendation.replace(/_/g, ' ') : '';
+    anEl.innerHTML = `<span class="text-xs text-muted">Analyst target </span>
+      <span class="text-sm font-mono font-semibold text-ink">$${fmt(an.target_mean)}</span>
+      <span class="text-xs font-semibold ${cls}"> (${upside >= 0 ? '+' : ''}${upside.toFixed(1)}%)</span>
+      ${rec ? `<span class="ml-1 text-xs font-semibold uppercase text-accent">${rec}</span>` : ''}`;
+  } else { anEl.innerHTML = ''; }
+
+  /* Valuation */
+  document.getElementById('fund-valuation').innerHTML = [
+    metricRow('P/E (trailing)', fmt(v.trailing_pe), 'Price ÷ last 12 months earnings. Lower can mean cheaper, but compare within an industry.'),
+    metricRow('P/E (forward)', fmt(v.forward_pe), 'Price ÷ expected next-year earnings.'),
+    metricRow('PEG ratio', fmt(v.peg_ratio), 'P/E adjusted for growth. Around 1 is often considered fair value.'),
+    metricRow('Price / Sales', fmt(v.price_to_sales), 'Market cap ÷ revenue. Useful for companies with little or no profit yet.'),
+    metricRow('Price / Book', fmt(v.price_to_book), 'Price relative to net asset value on the balance sheet.'),
+    metricRow('EV / EBITDA', fmt(v.ev_to_ebitda), 'Enterprise value vs operating earnings — a capital-structure-neutral valuation.'),
+  ].join('');
+
+  /* Profitability */
+  document.getElementById('fund-profitability').innerHTML = [
+    metricRow('Gross margin', fmtPct(prof.gross_margin_pct), 'Revenue left after the direct cost of goods sold.'),
+    metricRow('Operating margin', fmtPct(prof.operating_margin_pct), 'Profit from core operations as a % of revenue.'),
+    metricRow('Net margin', fmtPct(prof.profit_margin_pct), 'Bottom-line profit as a % of revenue.'),
+    metricRow('Return on equity', fmtPct(prof.roe_pct), 'Profit generated per dollar of shareholder equity.'),
+    metricRow('Return on assets', fmtPct(prof.roa_pct), 'How efficiently assets are used to generate profit.'),
+    metricRow('Revenue growth', fmtPct(d.growth.revenue_growth_pct), 'Year-over-year revenue growth.'),
+  ].join('');
+
+  /* Health */
+  document.getElementById('fund-health').innerHTML = [
+    metricRow('Total cash', fmtMoney(h.total_cash), 'Cash and short-term investments on hand.'),
+    metricRow('Total debt', fmtMoney(h.total_debt), 'Total borrowings. Compare against cash and earnings.'),
+    metricRow('Debt / Equity', fmt(h.debt_to_equity), 'Leverage — debt relative to shareholder equity. Lower is safer.'),
+    metricRow('Current ratio', fmtRatio(h.current_ratio), 'Short-term assets ÷ liabilities. Above 1 means bills are covered.'),
+    metricRow('Free cash flow', fmtMoney(h.free_cash_flow), 'Cash left after running and investing in the business.'),
+    metricRow('Beta', fmt(pr.beta), 'Volatility vs the market. Above 1 = more volatile than the index.'),
+  ].join('');
+
+  /* Financial charts */
+  barChart('chart-revenue', f.revenue, 'money');
+  barChart('chart-net-income', f.net_income, 'money');
+  barChart('chart-fcf', f.free_cash_flow, 'money');
+  barChart('chart-eps', f.eps, 'number');
+  barChart('chart-net-margin', f.net_margin, 'pct');
+  barChart('chart-operating-income', f.operating_income, 'money');
+
+  /* Dividends */
+  const divCard = document.getElementById('fund-dividend-card');
+  const hasDiv = (div.yield_pct != null && div.yield_pct > 0) || (div.history && div.history.length);
+  divCard.style.display = hasDiv ? '' : 'none';
+  if (hasDiv) {
+    document.getElementById('fund-dividend-metrics').innerHTML = [
+      ['Yield', fmtPct(div.yield_pct)],
+      ['Annual rate', div.rate != null ? `$${fmt(div.rate)}` : '—'],
+      ['Payout ratio', fmtPct(div.payout_ratio_pct)],
+      ['5y growth (CAGR)', fmtPct(div.growth_5y_cagr_pct)],
+    ].map(([l, val]) => `<div class="bg-surface2 rounded-lg p-3 text-center">
+      <p class="text-xs text-muted">${l}</p>
+      <p class="text-base font-bold font-mono text-ink mt-1">${val}</p>
+    </div>`).join('');
+    barChart('chart-dividends', div.history, 'number');
   }
 }
 
