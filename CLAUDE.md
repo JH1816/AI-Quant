@@ -34,11 +34,13 @@ pytest tests/test_quant_engine.py::test_bollinger_bands_order -q
 
 **Indicator math** lives entirely in `core/quant_engine.py` — no `pandas-ta`. Key private helpers: `_sma`, `_rsi`, `_macd`, `_bbands` (20-period), `_safe` (NaN/Inf → None). These are imported directly by `main.py` to avoid duplication in the chart endpoint.
 
+**Fundamentals** (`core/fundamentals_engine.py`) — `extract_fundamentals(ticker)` returns a Qualtrim-style dict: company profile, valuation (P/E, P/S, P/B, PEG, EV/EBITDA), profitability/margins, dividends (yield, payout, history, CAGR), balance-sheet health, analyst targets, and multi-year financial-statement series (revenue/net income/FCF/EPS/net-margin) from yfinance's `.info`, `.income_stmt`, `.balance_sheet`, `.cashflow`, `.dividends`. Reuses `_safe` from `quant_engine`; cached 1h per ticker in `_FUND_CACHE`. Exposed at `GET /api/fundamentals/{ticker}`. `_fair_value()` blends up to three transparent methods (analyst target, growth-justified P/E with PEG≈1, dividend yield theory) into `valuation.fair_value` with an Undervalued/Fairly valued/Overvalued verdict (±10% bands).
+
 **Agents** (`agents/quant_agent.py`, `agents/reporter_agent.py`) lazy-init the Gemini model on first call. The shared model name lives in `agents/config.py` as `MODEL_NAME`. Both agents handle quota (429) and blocked-response errors explicitly.
 
 **Database** (`core/db_manager.py`) is a thin SQLite wrapper — one table `portfolio(id, ticker, shares, average_buy_price, date_added)` with upsert-on-conflict. `DB_PATH` is monkeypatched in tests via `conftest.py`.
 
-**Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with three sections (Portfolio, Research, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
+**Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with four sections (Portfolio, Research, Fundamentals, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. The Fundamentals tab renders metric grids + year-by-year bar charts via a dependency-free `barChart()` helper in `app.js`. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
 
 **Scheduled report** fires Mon–Fri 16:15 ET via APScheduler cron job registered in the `lifespan` context manager. Reports are written as `.md` files to `data/reports/` (gitignored).
 

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from core.db_manager import init_db, add_position, remove_position, get_all_positions
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
+from core.fundamentals_engine import extract_fundamentals
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -189,6 +190,16 @@ async def get_chart(ticker: str, period: str = "6mo"):
 async def get_indicators(ticker: str):
     try:
         return extract_quant_indicators(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Data fetch error: {exc}")
+
+
+@app.get("/api/fundamentals/{ticker}")
+async def get_fundamentals(ticker: str):
+    try:
+        return extract_fundamentals(ticker)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
