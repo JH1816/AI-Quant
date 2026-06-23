@@ -18,7 +18,8 @@ An AI-driven portfolio research web application that blends **technical** and **
 - **Dividends** — Yield, annual rate, payout ratio, 5-year growth (CAGR), and per-share payout history.
 
 ### Portfolio & watchlist
-- **Portfolio Management** — Add, update, and remove positions stored in a local SQLite database, with live P&L and return % on every load.
+- **Portfolio Management** — Record buys and sells as transactions (average-cost accounting); live unrealised P&L, return %, and realized P&L on every load.
+- **Portfolio Equity Curve** — Historical line chart showing total portfolio value vs. cost basis, reconstructed day-by-day from the transaction log.
 - **Portfolio Insights** — Projected annual/monthly **dividend income**, portfolio yield, top income contributors, and a **sector-allocation** breakdown.
 - **Watchlist** — Track tickers with an at-a-glance fair-value verdict, price, P/E, and yield per row.
 - **Daily Portfolio Reports** — Holistic health summary across all holdings, scheduled Mon–Fri at 16:15 ET and available on demand.
@@ -115,8 +116,12 @@ Open `http://localhost:8000` in your browser.
 | `GET` | `/api/portfolio` | List all active positions |
 | `GET` | `/api/portfolio/enriched` | Positions with live price, P&L, and return % |
 | `GET` | `/api/portfolio/insights` | Dividend income, portfolio yield, and sector allocation |
+| `GET` | `/api/portfolio/chart` | Historical equity curve (portfolio value vs. cost basis) |
 | `POST` | `/api/portfolio` | Add or update a position |
 | `DELETE` | `/api/portfolio/{ticker}` | Remove a position |
+| `GET` | `/api/transactions` | List all transactions (optional `?ticker=` filter) |
+| `POST` | `/api/transactions` | Record a BUY or SELL trade |
+| `DELETE` | `/api/transactions/{id}` | Delete a transaction (holdings recompute automatically) |
 | `GET` | `/api/watchlist` | List watchlist tickers |
 | `GET` | `/api/watchlist/enriched` | Watchlist with price, P/E, yield, and fair-value verdict |
 | `POST` | `/api/watchlist` | Add a ticker to the watchlist |

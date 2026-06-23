@@ -1,23 +1,25 @@
 import os
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_type
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
+import pandas as pd
 from core.db_manager import (
     init_db, add_position, remove_position, get_all_positions,
     add_to_watchlist, remove_from_watchlist, get_watchlist,
     add_transaction, get_transactions, delete_transaction,
 )
+from core.cost_basis import compute_holding
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from core.fundamentals_engine import extract_fundamentals
 from core.portfolio_insights import build_portfolio_insights
@@ -84,9 +86,19 @@ class PositionIn(BaseModel):
     shares: float
     average_buy_price: float
 
+    @field_validator('ticker')
+    @classmethod
+    def normalize_ticker(cls, v: str) -> str:
+        return v.strip().upper()
+
 
 class TickerIn(BaseModel):
     ticker: str
+
+    @field_validator('ticker')
+    @classmethod
+    def normalize_ticker(cls, v: str) -> str:
+        return v.strip().upper()
 
 
 class TransactionIn(BaseModel):
@@ -96,6 +108,11 @@ class TransactionIn(BaseModel):
     price: float
     fee: float = 0.0
     trade_date: str | None = None
+
+    @field_validator('ticker')
+    @classmethod
+    def normalize_ticker(cls, v: str) -> str:
+        return v.strip().upper()
 
 
 # ─── Concurrency helpers ──────────────────────────────────────────────────────
@@ -195,6 +212,74 @@ async def portfolio_insights():
     return build_portfolio_insights(positions, data_by_ticker)
 
 
+@app.get("/api/portfolio/chart")
+async def get_portfolio_chart():
+    """Historical portfolio equity curve reconstructed from the transaction log."""
+    transactions = get_transactions()  # all tickers, trade_date DESC
+    if not transactions:
+        return {"dates": [], "portfolio_values": [], "cost_basis": []}
+
+    # Sort oldest-first for the rolling computation
+    transactions = sorted(transactions, key=lambda t: t["trade_date"])
+
+    # Group by ticker
+    trades_by_ticker: dict[str, list[dict]] = {}
+    for tx in transactions:
+        trades_by_ticker.setdefault(tx["ticker"], []).append(tx)
+
+    tickers = list(trades_by_ticker.keys())
+
+    # Fetch 2y OHLCV for every ticker concurrently
+    def _fetch_close(ticker: str) -> pd.Series:
+        df = _fetch_ohlcv(ticker, "2y")
+        if df.empty:
+            return pd.Series(dtype=float)
+        return df["Close"]
+
+    close_series_list = await asyncio.gather(
+        *(asyncio.to_thread(_fetch_close, t) for t in tickers)
+    )
+    close_by_ticker: dict[str, pd.Series] = {
+        t: s for t, s in zip(tickers, close_series_list) if not s.empty
+    }
+
+    # Date range: first trade date → today (business days only)
+    first_date = pd.Timestamp(transactions[0]["trade_date"]).normalize()
+    today = pd.Timestamp(date_type.today())
+    date_range = pd.bdate_range(start=first_date, end=today)
+
+    dates: list[str] = []
+    portfolio_values: list[float] = []
+    cost_bases: list[float] = []
+
+    for bday in date_range:
+        pv = 0.0
+        cb = 0.0
+        for ticker, ticker_trades in trades_by_ticker.items():
+            trades_to_date = [t for t in ticker_trades if t["trade_date"] <= bday.strftime("%Y-%m-%d 23:59:59")]
+            if not trades_to_date:
+                continue
+            holding = compute_holding(trades_to_date)
+            shares = holding["shares"]
+            if shares < 1e-9:
+                continue
+            avg_cost = holding["average_buy_price"] or 0.0
+            close = close_by_ticker.get(ticker)
+            if close is not None and not close.empty:
+                price = _safe(close.asof(bday))
+            else:
+                price = None
+            price = price if price else avg_cost
+            pv += shares * price
+            cb += shares * avg_cost
+
+        dates.append(bday.strftime("%Y-%m-%d"))
+        portfolio_values.append(round(pv, 2))
+        cost_bases.append(round(cb, 2))
+
+    return {"dates": dates, "portfolio_values": portfolio_values, "cost_basis": cost_bases}
+
+
 @app.post("/api/portfolio", status_code=201)
 async def create_position(body: PositionIn):
     try:
@@ -206,6 +291,7 @@ async def create_position(body: PositionIn):
 
 @app.delete("/api/portfolio/{ticker}")
 async def delete_position(ticker: str):
+    ticker = ticker.strip().upper()
     remove_position(ticker)
     return {"message": f"Position {ticker.upper()} removed."}
 
@@ -243,6 +329,8 @@ async def create_transaction(body: TransactionIn):
 
 @app.get("/api/transactions")
 async def list_transactions(ticker: str | None = None):
+    if ticker:
+        ticker = ticker.strip().upper()
     return get_transactions(ticker)
 
 
@@ -273,6 +361,7 @@ async def create_watchlist_item(body: TickerIn):
 
 @app.delete("/api/watchlist/{ticker}")
 async def delete_watchlist_item(ticker: str):
+    ticker = ticker.strip().upper()
     remove_from_watchlist(ticker)
     return {"message": f"{ticker.upper()} removed from watchlist."}
 
@@ -283,7 +372,7 @@ async def get_chart(ticker: str, period: str = "6mo"):
     if period not in ALLOWED_PERIODS:
         period = "6mo"
 
-    ticker = ticker.upper()
+    ticker = ticker.strip().upper()
     df = _fetch_ohlcv(ticker, period)
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for '{ticker}'")
@@ -336,6 +425,7 @@ async def get_chart(ticker: str, period: str = "6mo"):
 
 @app.get("/api/indicators/{ticker}")
 async def get_indicators(ticker: str):
+    ticker = ticker.strip().upper()
     try:
         return extract_quant_indicators(ticker)
     except ValueError as exc:
@@ -346,6 +436,7 @@ async def get_indicators(ticker: str):
 
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
+    ticker = ticker.strip().upper()
     try:
         return extract_fundamentals(ticker)
     except ValueError as exc:
@@ -356,6 +447,7 @@ async def get_fundamentals(ticker: str):
 
 @app.get("/api/analyze/{ticker}")
 async def analyze(ticker: str):
+    ticker = ticker.strip().upper()
     try:
         indicators = extract_quant_indicators(ticker)
     except ValueError as exc:

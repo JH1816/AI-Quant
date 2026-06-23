@@ -155,6 +155,37 @@ def test_watchlist_enriched_one_bad_ticker_returns_none_fallback(client, monkeyp
 
 # ── concurrency proof ─────────────────────────────────────────────────────────
 
+# ── ticker normalization ──────────────────────────────────────────────────────
+
+def test_post_transaction_lowercase_ticker(tmp_db):
+    """POST /api/transactions with a lowercase ticker stores it uppercased."""
+    import main as app_module
+    from fastapi.testclient import TestClient
+    client = TestClient(app_module.app)
+    resp = client.post("/api/transactions", json={
+        "ticker": "aapl", "side": "BUY", "shares": 1.0, "price": 150.0,
+    })
+    assert resp.status_code == 201
+    txs = client.get("/api/transactions?ticker=AAPL").json()
+    assert len(txs) == 1
+    assert txs[0]["ticker"] == "AAPL"
+
+
+def test_get_transactions_lowercase_filter(tmp_db):
+    """GET /api/transactions?ticker=googl (lowercase) returns the same rows as GOOGL."""
+    import main as app_module
+    from fastapi.testclient import TestClient
+    client = TestClient(app_module.app)
+    client.post("/api/transactions", json={
+        "ticker": "GOOGL", "side": "BUY", "shares": 2.0, "price": 180.0,
+    })
+    resp = client.get("/api/transactions?ticker=googl")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+# ── concurrency proof ─────────────────────────────────────────────────────────
+
 def test_enriched_runs_concurrently(client, monkeypatch):
     """5 tickers each sleeping 0.3 s should finish well under 1.5 s serial sum."""
     slow_positions = [
