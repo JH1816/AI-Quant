@@ -1,17 +1,30 @@
 # AI Quant Portfolio Tracker
 
-An AI-driven quantitative portfolio monitoring web application. It combines real-time market data, technical analysis indicators, and the Google Gemini API to deliver per-ticker trade analysis, interactive price charts, and daily portfolio health reports — all from a clean single-page dashboard.
+An AI-driven portfolio research web application that blends **technical** and **fundamental** analysis in one clean single-page dashboard. It combines real-time market data, technical indicators, Qualtrim-style fundamentals (financial statements, valuation, dividends, fair value), and the Google Gemini API for per-ticker trade analysis and daily portfolio health reports.
 
 ---
 
 ## Features
 
-- **Portfolio Management** — Add, update, and remove stock positions stored in a local SQLite database, with live P&L and return % calculated on every load.
+### Technical analysis
 - **Interactive Price Chart** — Candlestick chart with SMA 50/100/200 overlays and a color-coded volume histogram. Switch between 1M, 3M, 6M, 1Y, and 2Y views instantly.
 - **Quantitative Engine** — Fetches daily price data via yfinance and computes SMA (50/100/200), RSI-14, MACD, Bollinger Bands, Fibonacci retracement levels, volume vs. 20-day MA, and an optimum entry price signal.
 - **AI Stock Analysis** — Sends computed indicators to Gemini acting as a Senior Quant Trader, returning a structured Markdown report with entry points, stop-losses, targets, and risk-reward ratios.
-- **Daily Portfolio Reports** — Holistic portfolio health summary across all active holdings, automatically scheduled Mon–Fri at 16:15 EST and available on demand from the dashboard.
-- **Web Dashboard** — Responsive light/dark-theme SPA built with Tailwind CSS and vanilla JavaScript; renders AI Markdown output via marked.js.
+
+### Fundamental analysis (Qualtrim-style)
+- **Company Fundamentals** — Profile, valuation (P/E, forward P/E, PEG, P/S, P/B, EV/EBITDA), profitability/margins (gross/operating/net, ROE, ROA), financial health (cash, debt, current ratio, FCF), and analyst targets.
+- **Financial Statements** — Year-by-year bar charts for revenue, net income, gross/operating income, free cash flow, EPS, and net margin.
+- **Fair-Value Estimate** — Blends analyst targets, growth-justified P/E (PEG≈1), and dividend yield theory into a single estimate with an **Undervalued / Fairly valued / Overvalued** verdict and % upside.
+- **Dividends** — Yield, annual rate, payout ratio, 5-year growth (CAGR), and per-share payout history.
+
+### Portfolio & watchlist
+- **Portfolio Management** — Add, update, and remove positions stored in a local SQLite database, with live P&L and return % on every load.
+- **Portfolio Insights** — Projected annual/monthly **dividend income**, portfolio yield, top income contributors, and a **sector-allocation** breakdown.
+- **Watchlist** — Track tickers with an at-a-glance fair-value verdict, price, P/E, and yield per row.
+- **Daily Portfolio Reports** — Holistic health summary across all holdings, scheduled Mon–Fri at 16:15 ET and available on demand.
+
+### Platform
+- **Web Dashboard** — Responsive light/dark-theme SPA built with Tailwind CSS and vanilla JavaScript; renders AI Markdown output via marked.js and financial charts via a dependency-free bar-chart helper.
 
 ---
 
@@ -42,8 +55,10 @@ AI-Quant/
 │   ├── portfolio.db          # SQLite database (auto-created)
 │   └── reports/              # Generated Markdown reports
 ├── core/
-│   ├── db_manager.py         # Database CRUD operations
-│   └── quant_engine.py       # Technical indicator calculations
+│   ├── db_manager.py         # Database CRUD (portfolio + watchlist)
+│   ├── quant_engine.py       # Technical indicator calculations
+│   ├── fundamentals_engine.py# Fundamentals + fair-value estimate
+│   └── portfolio_insights.py # Dividend income + sector allocation
 ├── agents/
 │   ├── quant_agent.py        # Per-ticker LLM analysis
 │   └── reporter_agent.py     # Portfolio-wide LLM report
@@ -99,15 +114,23 @@ Open `http://localhost:8000` in your browser.
 |---|---|---|
 | `GET` | `/api/portfolio` | List all active positions |
 | `GET` | `/api/portfolio/enriched` | Positions with live price, P&L, and return % |
+| `GET` | `/api/portfolio/insights` | Dividend income, portfolio yield, and sector allocation |
 | `POST` | `/api/portfolio` | Add or update a position |
 | `DELETE` | `/api/portfolio/{ticker}` | Remove a position |
+| `GET` | `/api/watchlist` | List watchlist tickers |
+| `GET` | `/api/watchlist/enriched` | Watchlist with price, P/E, yield, and fair-value verdict |
+| `POST` | `/api/watchlist` | Add a ticker to the watchlist |
+| `DELETE` | `/api/watchlist/{ticker}` | Remove a ticker from the watchlist |
 | `GET` | `/api/indicators/{ticker}` | Full technical indicator snapshot |
+| `GET` | `/api/fundamentals/{ticker}` | Fundamentals, valuation, dividends + fair-value estimate |
 | `GET` | `/api/chart/{ticker}?period=6mo` | OHLCV candles + SMA series for charting |
 | `GET` | `/api/analyze/{ticker}` | Run AI analysis on a ticker |
 | `POST` | `/api/report/trigger` | Generate a portfolio report now |
 | `GET` | `/api/report/latest` | Fetch the most recent report |
 
 **Chart period options:** `1mo`, `3mo`, `6mo`, `1y`, `2y`
+
+> Fundamentals, valuation, dividends, portfolio insights, and the watchlist all work **without** a Gemini key — only `/api/analyze` and `/api/report/*` require `GOOGLE_API_KEY`.
 
 ### Example — Add a Position
 

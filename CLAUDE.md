@@ -44,7 +44,7 @@ pytest tests/test_quant_engine.py::test_bollinger_bands_order -q
 
 **Watchlist** — `GET/POST/DELETE /api/watchlist` plus `GET /api/watchlist/enriched`, which fetches fundamentals per ticker and returns price, P/E, dividend yield, and the `fair_value` estimate/upside/verdict for an at-a-glance valuation read. Rendered as the Watchlist tab; ticker rows link into the Fundamentals tab.
 
-**Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with four sections (Portfolio, Research, Fundamentals, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. The Fundamentals tab renders metric grids + year-by-year bar charts via a dependency-free `barChart()` helper in `app.js`. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
+**Frontend** (`static/index.html` + `static/app.js`) is a vanilla-JS SPA with five sections (Portfolio, Research, Fundamentals, Watchlist, Reports). Uses Tailwind CSS, lightweight-charts (candlestick chart), and marked.js (Markdown rendering) all from CDN. The Fundamentals tab renders metric grids + year-by-year bar charts via a dependency-free `barChart()` helper in `app.js`; the Portfolio tab adds dividend-income + sector-allocation cards. Tooltip system is CSS-only via `.tip` / `data-tip` attribute.
 
 **Scheduled report** fires Mon–Fri 16:15 ET via APScheduler cron job registered in the `lifespan` context manager. Reports are written as `.md` files to `data/reports/` (gitignored).
 
