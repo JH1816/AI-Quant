@@ -1,19 +1,26 @@
 # AI Quant Portfolio Tracker — Session Handover
 
-**Date:** 2026-06-21
-**Branch:** `main` (clean, pushed to `github.com/JH1816/AI-Quant`)
-**Last commit:** `7e4e3aa` — feat: migrate to Google Gemini API and add Technical Metrics Dashboard
+**Date:** 2026-06-23
+**Branch:** `claude/project-qualtrim-improvement-fjml7j` (open as PR #8 against `main`)
+**Theme of this work:** make the app more like [Qualtrim](https://qualtrim.com) by adding a fundamentals/valuation/dividend dimension alongside the existing technical analysis.
 
 ---
 
 ## What This App Does
 
-A FastAPI + vanilla JS single-page app that:
-1. Tracks a stock portfolio (SQLite) with add/remove positions
-2. Fetches live market data via yfinance and computes quant indicators natively
-3. Runs those indicators through Google Gemini (gemini-3.5-flash) to produce a Markdown trade analysis report
+A FastAPI + vanilla JS single-page app that blends **technical** and **fundamental** analysis:
+
+**Technical analysis**
+1. Tracks a stock portfolio (SQLite) with add/remove positions and live P&L
+2. Fetches live market data via yfinance and computes quant indicators natively (SMA, RSI, MACD, Bollinger, Fibonacci, volume) plus an Optimum Entry signal — shown in a Technical Metrics Dashboard with plain-English tooltips
+3. Runs those indicators through Google Gemini to produce a Markdown trade-analysis report
 4. Generates a daily portfolio health report on a schedule (Mon–Fri 16:15 ET)
-5. Shows a **Technical Metrics Dashboard** with RSI, MACD, Bollinger Bands, Fibonacci levels, volume profile, and an Optimum Entry price signal — all with plain-English tooltip explanations for non-quant users
+
+**Fundamental analysis (Qualtrim-style)**
+5. **Fundamentals tab** — company profile, valuation (P/E, PEG, P/S, P/B, EV/EBITDA), profitability/margins, financial health, analyst targets, dividends, and year-by-year financial-statement bar charts (revenue/net income/FCF/EPS/margins)
+6. **Fair-value estimate** — blends analyst target, growth-justified P/E (PEG≈1), and dividend yield theory into an Undervalued/Fairly valued/Overvalued verdict
+7. **Portfolio insights** — projected dividend income, portfolio yield, and sector allocation
+8. **Watchlist** — persisted tickers with an at-a-glance fair-value verdict per row
 
 ---
 
@@ -30,11 +37,13 @@ AI-Quant/
 │   ├── quant_agent.py       # analyze_ticker(dict) → Markdown report via Gemini
 │   └── reporter_agent.py    # generate_portfolio_report(list, dict) → Markdown via Gemini
 ├── core/
-│   ├── quant_engine.py      # extract_quant_indicators(ticker) → dict (all maths live here)
-│   └── db_manager.py        # SQLite CRUD: init_db, add_position, remove_position, get_all_positions
+│   ├── quant_engine.py      # extract_quant_indicators(ticker) → dict (TA maths)
+│   ├── fundamentals_engine.py # extract_fundamentals(ticker) + _fair_value() (fundamentals/valuation)
+│   ├── portfolio_insights.py  # build_portfolio_insights() — dividend income + sector allocation (pure)
+│   └── db_manager.py        # SQLite CRUD: portfolio + watchlist tables
 ├── static/
-│   ├── index.html           # SPA shell, Tailwind CSS, tooltip CSS (.tip / data-tip)
-│   └── app.js               # All frontend logic: portfolio table, metrics dashboard, AI analysis
+│   ├── index.html           # SPA shell (5 tabs), Tailwind CSS, tooltip CSS (.tip / data-tip)
+│   └── app.js               # All frontend logic: portfolio, research, fundamentals, watchlist, reports
 ├── data/
 │   ├── portfolio.db         # SQLite DB (gitignored, auto-created on first run)
 │   └── reports/             # Generated .md reports (gitignored)
@@ -87,12 +96,22 @@ The `.env` file is gitignored; never commit it.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/portfolio` | List all positions |
+| `GET` | `/api/portfolio/enriched` | Positions with live price, P&L, return % |
+| `GET` | `/api/portfolio/insights` | Dividend income, portfolio yield, sector allocation |
 | `POST` | `/api/portfolio` | Add/update position `{ticker, shares, average_buy_price}` |
 | `DELETE` | `/api/portfolio/{ticker}` | Remove position |
+| `GET` | `/api/watchlist` | List watchlist tickers |
+| `GET` | `/api/watchlist/enriched` | Watchlist with price, P/E, yield, fair-value verdict |
+| `POST` | `/api/watchlist` | Add ticker `{ticker}` |
+| `DELETE` | `/api/watchlist/{ticker}` | Remove from watchlist |
 | `GET` | `/api/indicators/{ticker}` | Raw quant indicators (fast, no LLM call) |
+| `GET` | `/api/fundamentals/{ticker}` | Fundamentals, valuation, dividends + fair value (no LLM call) |
+| `GET` | `/api/chart/{ticker}?period=6mo` | OHLCV candles + SMA series |
 | `GET` | `/api/analyze/{ticker}` | Full AI analysis via Gemini (costs API quota) |
 | `POST` | `/api/report/trigger` | Manually trigger daily portfolio health report |
 | `GET` | `/api/report/latest` | Fetch the most recently generated report |
+
+Only `/api/analyze` and `/api/report/*` require `GOOGLE_API_KEY`; everything else (fundamentals, valuation, insights, watchlist) is quota-free.
 
 ---
 
@@ -103,7 +122,7 @@ The `pandas-ta` library's GitHub repo was deleted. All technical indicators are 
 - `_sma(series, length)` — simple rolling mean
 - `_rsi(series, length=14)` — EWM-based Wilder RSI
 - `_macd(series, fast=12, slow=26, signal=9)` — returns (macd_line, signal_line, histogram)
-- `_bbands(series, length=5, std=2.0)` — returns (upper, middle, lower)
+- `_bbands(series, length=20, std=2.0)` — returns (upper, middle, lower)
 
 ### Optimum Entry Price Logic (`quant_engine.py` lines 103–149)
 Collects all support levels below current price (Fib 0.236/0.382/0.500, BB Lower, SMA 50/100/200), sorts descending (nearest support first), then:
@@ -124,12 +143,14 @@ Requires `>=1.4.1` — older versions (0.2.x) are broken against Yahoo Finance's
 
 ## Known Limitations / Possible Next Features
 
-- **Bollinger Band window is 5 days** (short-term, more reactive). Standard is 20 days — consider making this configurable.
+- **All data depends on yfinance** — fundamentals (`.info`, statements, dividends) and prices come from Yahoo. Some hosting/CI environments block Yahoo egress; in that case fundamentals endpoints return 404 and the logic is only exercised by the mocked tests.
+- **Fair value is a heuristic** — it blends analyst targets, growth-justified P/E (PEG≈1, clamped to an 8–35 band), and dividend yield theory. It's an educational guide, not a DCF; treat the verdict accordingly.
+- **`/api/portfolio/insights` and `/api/watchlist/enriched` fetch fundamentals per ticker** — first load for many tickers can be slow until the 1h cache warms.
 - **No authentication** — the API is fully open. Fine for local use, needs auth before any deployment.
-- **No price-paid P&L** — the portfolio table shows positions but doesn't compute unrealised P&L vs. average buy price.
 - **Reports are stored as flat .md files** — no UI to browse past reports, only `/api/report/latest` is exposed.
 - **Daily report scheduler** runs at 16:15 ET Mon–Fri but only if the server is running at that time.
-- **Free-tier Gemini quota** is low — expect 429 errors under heavy use. The `/api/indicators/{ticker}` endpoint is quota-free and should be preferred for dashboard-only use.
+- **Free-tier Gemini quota** is low — expect 429 errors under heavy use. The fundamentals/indicators endpoints are quota-free and should be preferred for dashboard-only use.
+- **Next ideas:** valuation history bands (P/E over time), CSV import/export, earnings/ex-dividend calendar, and feeding fundamentals into the Gemini agents for a richer report.
 
 ---
 

@@ -12,9 +12,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
-from core.db_manager import init_db, add_position, remove_position, get_all_positions
+from core.db_manager import (
+    init_db, add_position, remove_position, get_all_positions,
+    add_to_watchlist, remove_from_watchlist, get_watchlist,
+)
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from core.fundamentals_engine import extract_fundamentals
+from core.portfolio_insights import build_portfolio_insights
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -81,6 +85,10 @@ class PositionIn(BaseModel):
     average_buy_price: float
 
 
+class TickerIn(BaseModel):
+    ticker: str
+
+
 # ─── API Routes ───────────────────────────────────────────────────────────────
 
 @app.get("/api/portfolio")
@@ -114,6 +122,18 @@ async def get_portfolio_enriched():
     return enriched
 
 
+@app.get("/api/portfolio/insights")
+async def portfolio_insights():
+    positions = get_all_positions()
+    data_by_ticker = {}
+    for pos in positions:
+        try:
+            data_by_ticker[pos["ticker"]] = extract_fundamentals(pos["ticker"])
+        except Exception:
+            data_by_ticker[pos["ticker"]] = None
+    return build_portfolio_insights(positions, data_by_ticker)
+
+
 @app.post("/api/portfolio", status_code=201)
 async def create_position(body: PositionIn):
     try:
@@ -127,6 +147,55 @@ async def create_position(body: PositionIn):
 async def delete_position(ticker: str):
     remove_position(ticker)
     return {"message": f"Position {ticker.upper()} removed."}
+
+
+@app.get("/api/watchlist")
+async def list_watchlist():
+    return get_watchlist()
+
+
+@app.get("/api/watchlist/enriched")
+async def list_watchlist_enriched():
+    enriched = []
+    for row in get_watchlist():
+        ticker = row["ticker"]
+        try:
+            f = extract_fundamentals(ticker)
+            fv = f["valuation"].get("fair_value") or {}
+            enriched.append({
+                "ticker": ticker,
+                "name": f["profile"].get("name"),
+                "sector": f["profile"].get("sector"),
+                "price": f["price"].get("current"),
+                "trailing_pe": f["valuation"].get("trailing_pe"),
+                "dividend_yield_pct": f["dividends"].get("yield_pct"),
+                "fair_value": fv.get("estimate"),
+                "upside_pct": fv.get("upside_pct"),
+                "verdict": fv.get("verdict"),
+                "date_added": row["date_added"],
+            })
+        except Exception:
+            enriched.append({
+                "ticker": ticker, "name": None, "sector": None, "price": None,
+                "trailing_pe": None, "dividend_yield_pct": None, "fair_value": None,
+                "upside_pct": None, "verdict": None, "date_added": row["date_added"],
+            })
+    return enriched
+
+
+@app.post("/api/watchlist", status_code=201)
+async def create_watchlist_item(body: TickerIn):
+    ticker = body.ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker is required.")
+    add_to_watchlist(ticker)
+    return {"message": f"{ticker} added to watchlist."}
+
+
+@app.delete("/api/watchlist/{ticker}")
+async def delete_watchlist_item(ticker: str):
+    remove_from_watchlist(ticker)
+    return {"message": f"{ticker.upper()} removed from watchlist."}
 
 
 @app.get("/api/chart/{ticker}")
