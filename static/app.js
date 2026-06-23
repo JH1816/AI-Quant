@@ -548,6 +548,40 @@ async function runFundamentals(ticker) {
   }
 }
 
+function renderFairValue(fv, price) {
+  const el = document.getElementById('fund-fairvalue');
+  if (!fv || fv.estimate == null) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+
+  const verdictCls = {
+    'Undervalued': 'text-pos bg-pos/10',
+    'Overvalued': 'text-neg bg-neg/10',
+    'Fairly valued': 'text-muted bg-surface2',
+  }[fv.verdict] || 'text-muted bg-surface2';
+  const upCls = fv.upside_pct == null ? 'text-muted' : fv.upside_pct >= 0 ? 'text-pos' : 'text-neg';
+  const upTxt = fv.upside_pct == null ? '' :
+    `${fv.upside_pct >= 0 ? '+' : ''}${fv.upside_pct.toFixed(1)}% vs price`;
+
+  const chips = fv.methods.map(m =>
+    `<span class="text-xs bg-surface2 text-muted px-2 py-1 rounded-md">${m.name}: <span class="font-mono font-semibold text-ink">$${fmt(m.value)}</span></span>`
+  ).join(' ');
+
+  el.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <span class="tip text-xs font-semibold text-muted uppercase tracking-wider"
+              data-tip="A blended fair-value estimate from analyst targets, growth-justified P/E (PEG≈1) and dividend yield theory. An educational guide, not financial advice.">Fair Value Estimate<i class="tip-icon">i</i></span>
+        <div class="flex items-baseline gap-3 mt-1">
+          <span class="text-3xl font-bold font-mono text-ink">$${fmt(fv.estimate)}</span>
+          <span class="text-sm font-semibold ${upCls}">${upTxt}</span>
+        </div>
+        <p class="text-xs text-muted mt-1">Current price $${fmt(price)}</p>
+      </div>
+      <span class="inline-block px-4 py-1.5 rounded-full text-sm font-bold ${verdictCls}">${fv.verdict || '—'}</span>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-line">${chips}</div>`;
+}
+
 function renderFundamentals(d) {
   const p = d.profile, pr = d.price, v = d.valuation, prof = d.profitability,
         h = d.health, div = d.dividends, an = d.analyst, f = d.financials;
@@ -573,6 +607,9 @@ function renderFundamentals(d) {
       <span class="text-xs font-semibold ${cls}"> (${upside >= 0 ? '+' : ''}${upside.toFixed(1)}%)</span>
       ${rec ? `<span class="ml-1 text-xs font-semibold uppercase text-accent">${rec}</span>` : ''}`;
   } else { anEl.innerHTML = ''; }
+
+  /* Fair value verdict */
+  renderFairValue(v.fair_value, pr.current);
 
   /* Valuation */
   document.getElementById('fund-valuation').innerHTML = [

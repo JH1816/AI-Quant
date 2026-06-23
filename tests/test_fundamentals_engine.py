@@ -3,7 +3,9 @@ import pytest
 from unittest.mock import patch
 
 from core import fundamentals_engine as fe
-from core.fundamentals_engine import extract_fundamentals, _cagr, _pct, _series_by_year
+from core.fundamentals_engine import (
+    extract_fundamentals, _cagr, _pct, _series_by_year, _fair_value,
+)
 
 
 # ── Fakes ──────────────────────────────────────────────────────────────────────
@@ -41,6 +43,9 @@ class FakeTicker:
             "recommendationKey": "buy",
             "numberOfAnalystOpinions": 30,
             "exDividendDate": 1_700_000_000,
+            "trailingEps": 5.0,
+            "earningsGrowth": 0.20,
+            "fiveYearAvgDividendYield": 1.5,
         }
         self.income_stmt = _stmt_df({
             "Total Revenue": [300, 250, 200],
@@ -141,6 +146,46 @@ def test_dividend_history_aggregated_by_year(result):
 
 def test_revenue_cagr_present(result):
     assert result["growth"]["revenue_cagr_pct"] is not None
+
+
+# ── fair value ──────────────────────────────────────────────────────────────────
+
+def test_fair_value_blends_three_methods(result):
+    fv = result["valuation"]["fair_value"]
+    assert fv is not None
+    names = {m["name"] for m in fv["methods"]}
+    assert names == {"Analyst target", "Growth (PEG=1)", "Dividend yield theory"}
+    # (120 + 5*20 + 1.2/0.015) / 3 = (120 + 100 + 80) / 3 = 100
+    assert fv["estimate"] == 100.0
+    assert fv["upside_pct"] == 0.0
+    assert fv["verdict"] == "Fairly valued"
+
+
+def test_fair_value_undervalued_verdict():
+    info = {"trailingEps": None}
+    fv = _fair_value(info, price=80.0, dividends={}, analyst={"target_mean": 100.0},
+                     growth_pct=None)
+    assert fv["verdict"] == "Undervalued"
+    assert fv["upside_pct"] == 25.0
+
+
+def test_fair_value_overvalued_verdict():
+    fv = _fair_value({"trailingEps": None}, price=200.0, dividends={},
+                     analyst={"target_mean": 100.0}, growth_pct=None)
+    assert fv["verdict"] == "Overvalued"
+
+
+def test_fair_value_none_when_no_inputs():
+    fv = _fair_value({"trailingEps": None}, price=100.0, dividends={},
+                     analyst={}, growth_pct=None)
+    assert fv is None
+
+
+def test_fair_value_growth_pe_clamped():
+    # 200% growth must be clamped to a 35 P/E, not used literally.
+    fv = _fair_value({"trailingEps": 10.0}, price=100.0, dividends={},
+                     analyst={}, growth_pct=200.0)
+    assert fv["methods"][0]["value"] == 350.0  # 10 * 35 (clamp), not 10 * 200
 
 
 def test_missing_info_raises():

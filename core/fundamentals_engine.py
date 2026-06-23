@@ -89,6 +89,65 @@ def _cagr(series: list[dict]):
         return None
 
 
+def _fair_value(info: dict, price, dividends: dict, analyst: dict, growth_pct):
+    """Estimate fair value by blending several simple, transparent methods.
+
+    Each method is only used when its inputs are present, so a non-dividend or
+    loss-making company still gets an estimate from whatever applies. Returns a
+    dict with the blended estimate, per-method breakdown and an over/under-valued
+    verdict, or ``None`` when nothing can be computed.
+    """
+    methods: list[dict] = []
+
+    eps_ttm = _safe(info.get("trailingEps"))
+
+    # 1. Analyst consensus target.
+    target = _safe(analyst.get("target_mean"))
+    if target and target > 0:
+        methods.append({"name": "Analyst target", "value": round(target, 2)})
+
+    # 2. Growth-justified P/E (Peter Lynch / PEG≈1): fair P/E ≈ growth rate,
+    #    clamped to a sane 8–35 band to avoid absurd outputs.
+    if eps_ttm and eps_ttm > 0 and growth_pct and growth_pct > 0:
+        fair_pe = min(max(growth_pct, 8), 35)
+        methods.append({
+            "name": "Growth (PEG=1)",
+            "value": round(eps_ttm * fair_pe, 2),
+        })
+
+    # 3. Dividend yield theory: fair price = annual dividend ÷ 5y-average yield.
+    rate = _safe(dividends.get("rate"))
+    avg_yield = _safe(dividends.get("five_year_avg_yield_pct"))
+    if rate and rate > 0 and avg_yield and avg_yield > 0:
+        methods.append({
+            "name": "Dividend yield theory",
+            "value": round(rate / (avg_yield / 100), 2),
+        })
+
+    if not methods:
+        return None
+
+    estimate = round(sum(m["value"] for m in methods) / len(methods), 2)
+
+    verdict, upside = None, None
+    if price and price > 0:
+        upside = round((estimate / price - 1) * 100, 1)
+        if upside > 10:
+            verdict = "Undervalued"
+        elif upside < -10:
+            verdict = "Overvalued"
+        else:
+            verdict = "Fairly valued"
+
+    return {
+        "estimate": estimate,
+        "upside_pct": upside,
+        "verdict": verdict,
+        "methods": methods,
+    }
+
+
+
 def extract_fundamentals(ticker_symbol: str) -> dict:
     """Return a normalised fundamentals dict for ``ticker_symbol``."""
     ticker_symbol = ticker_symbol.upper()
@@ -175,6 +234,21 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
         "growth_5y_cagr_pct": _cagr(div_history[-6:]) if len(div_history) >= 2 else None,
     }
 
+    # ── Fair value estimate ──────────────────────────────────────────────────
+    current_price = _safe(_pick(info, "currentPrice", "regularMarketPrice"))
+    analyst = {
+        "target_mean": _safe(info.get("targetMeanPrice")),
+        "target_high": _safe(info.get("targetHighPrice")),
+        "target_low": _safe(info.get("targetLowPrice")),
+        "recommendation": info.get("recommendationKey"),
+        "num_analysts": info.get("numberOfAnalystOpinions"),
+    }
+    earnings_growth_pct = _pct(info.get("earningsGrowth"))
+    fair_value = _fair_value(
+        info, current_price, dividends, analyst,
+        earnings_growth_pct if earnings_growth_pct else _cagr(net_income),
+    )
+
     # ── Assemble ─────────────────────────────────────────────────────────────
     result = {
         "ticker": ticker_symbol,
@@ -190,7 +264,7 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
             "exchange": info.get("exchange"),
         },
         "price": {
-            "current": _safe(_pick(info, "currentPrice", "regularMarketPrice")),
+            "current": current_price,
             "market_cap": _safe(info.get("marketCap")),
             "enterprise_value": _safe(info.get("enterpriseValue")),
             "beta": _safe(info.get("beta")),
@@ -205,6 +279,8 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
             "price_to_book": _safe(info.get("priceToBook")),
             "ev_to_ebitda": _safe(info.get("enterpriseToEbitda")),
             "ev_to_revenue": _safe(info.get("enterpriseToRevenue")),
+            "trailing_eps": _safe(info.get("trailingEps")),
+            "fair_value": fair_value,
         },
         "profitability": {
             "gross_margin_pct": _pct(info.get("grossMargins")),
@@ -215,7 +291,7 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
         },
         "growth": {
             "revenue_growth_pct": _pct(info.get("revenueGrowth")),
-            "earnings_growth_pct": _pct(info.get("earningsGrowth")),
+            "earnings_growth_pct": earnings_growth_pct,
             "revenue_cagr_pct": _cagr(revenue),
             "net_income_cagr_pct": _cagr(net_income),
         },
@@ -228,13 +304,7 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
             "free_cash_flow": _safe(info.get("freeCashflow")),
         },
         "dividends": dividends,
-        "analyst": {
-            "target_mean": _safe(info.get("targetMeanPrice")),
-            "target_high": _safe(info.get("targetHighPrice")),
-            "target_low": _safe(info.get("targetLowPrice")),
-            "recommendation": info.get("recommendationKey"),
-            "num_analysts": info.get("numberOfAnalystOpinions"),
-        },
+        "analyst": analyst,
         "financials": {
             "revenue": revenue,
             "net_income": net_income,
