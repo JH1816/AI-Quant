@@ -5,6 +5,7 @@ function toggleTheme() {
   const dark = document.documentElement.classList.toggle('dark');
   try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
   if (_currentChartTicker) loadChart(_currentChartTicker, _currentChartPeriod);
+  if (_equityChart) loadEquityChart();
 }
 
 /* ── Clock ──────────────────────────────────────────────────────────────── */
@@ -142,10 +143,12 @@ async function loadPortfolio() {
     }
 
     loadPortfolioInsights();
+    loadEquityChart();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
     summary.classList.add('hidden');
     document.getElementById('portfolio-insights').classList.add('hidden');
+    document.getElementById('equity-chart-card').classList.add('hidden');
   }
 }
 
@@ -319,6 +322,41 @@ async function deleteTrade(txId, ticker) {
     loadPortfolio();
   } catch (e) {
     showToast(e.message, 'error');
+  }
+}
+
+/* ── Equity Curve Chart ──────────────────────────────────────────────────── */
+let _equityChart = null;
+
+async function loadEquityChart() {
+  const card = document.getElementById('equity-chart-card');
+  const el   = document.getElementById('equity-chart');
+  try {
+    const data = await apiFetch('/api/portfolio/chart');
+    if (!data.dates || data.dates.length < 2) { card.classList.add('hidden'); return; }
+
+    if (_equityChart) { _equityChart.remove(); _equityChart = null; }
+
+    const t = chartTheme();
+    _equityChart = LightweightCharts.createChart(el, {
+      layout: { background: { color: 'transparent' }, textColor: t.text },
+      grid:   { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      crosshair: { mode: 1 },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border, timeVisible: false },
+      height: 280,
+    });
+
+    const pvSeries = _equityChart.addLineSeries({ color: '#0ea5e9', lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
+    const cbSeries = _equityChart.addLineSeries({ color: '#64748b', lineWidth: 1.5, lineStyle: 1, priceLineVisible: false, lastValueVisible: false });
+
+    pvSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.portfolio_values[i] })));
+    cbSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.cost_basis[i] })));
+    _equityChart.timeScale().fitContent();
+
+    card.classList.remove('hidden');
+  } catch (e) {
+    card.classList.add('hidden');
   }
 }
 
