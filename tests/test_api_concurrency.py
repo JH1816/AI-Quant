@@ -8,6 +8,7 @@ Goals:
 """
 
 import time
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -112,6 +113,66 @@ def test_portfolio_insights_returns_dict(client):
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, dict)
+
+
+# ── /api/compare ──────────────────────────────────────────────────────────────
+
+def test_compare_returns_metric_rows(client):
+    resp = client.get("/api/compare?tickers=AAPL,MSFT")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tickers"] == ["AAPL", "MSFT"]
+    keys = {m["key"] for m in data["metrics"]}
+    assert {"price", "trailing_pe", "dividend_yield_pct", "verdict"} <= keys
+    price_row = next(m for m in data["metrics"] if m["key"] == "price")
+    assert price_row["values"] == {"AAPL": 200.0, "MSFT": 200.0}
+
+
+def test_compare_dedupes_and_uppercases(client):
+    resp = client.get("/api/compare?tickers=aapl, AAPL , msft")
+    assert resp.status_code == 200
+    assert resp.json()["tickers"] == ["AAPL", "MSFT"]
+
+
+def test_compare_rejects_single_ok_but_too_many_fails(client):
+    resp = client.get("/api/compare?tickers=A,B,C,D,E")
+    assert resp.status_code == 400
+
+
+def test_compare_empty_is_rejected(client):
+    resp = client.get("/api/compare?tickers=%20%2C%20")  # " , "
+    assert resp.status_code == 400
+
+
+# ── /api/portfolio/risk ───────────────────────────────────────────────────────
+
+def _synthetic_close(_ticker, _period="1y"):
+    idx = pd.bdate_range(start="2023-01-02", periods=120)
+    # Deterministic gentle uptrend with oscillation, never flat.
+    prices = [100 * (1 + 0.001 * i + 0.01 * ((-1) ** i)) for i in range(len(idx))]
+    return pd.Series(prices, index=idx)
+
+
+def test_portfolio_risk_route(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "_close_series", _synthetic_close)
+
+    resp = client.get("/api/portfolio/risk")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["benchmark"] == "SPY"
+    assert {p["ticker"] for p in data["positions"]} == {"AAPL", "MSFT", "NVDA"}
+    for key in ("annual_volatility_pct", "sharpe_ratio", "max_drawdown_pct", "beta"):
+        assert key in data
+    assert len(data["correlation"]["matrix"]) == 3
+
+
+def test_portfolio_risk_empty_portfolio(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "get_all_positions", lambda: [])
+    resp = client.get("/api/portfolio/risk")
+    assert resp.status_code == 200
+    assert resp.json()["positions"] == []
 
 
 # ── graceful degradation ──────────────────────────────────────────────────────
