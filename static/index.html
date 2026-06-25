@@ -151,6 +151,7 @@
       <button class="nav-tab" data-nav="research" onclick="showSection('research')">Research</button>
       <button class="nav-tab" data-nav="fundamentals" onclick="showSection('fundamentals')">Fundamentals</button>
       <button class="nav-tab" data-nav="watchlist" onclick="showSection('watchlist')">Watchlist</button>
+      <button class="nav-tab" data-nav="compare" onclick="showSection('compare')">Compare</button>
       <button class="nav-tab" data-nav="reports" onclick="showSection('reports')">Reports</button>
     </nav>
   </div>
@@ -246,6 +247,63 @@
       <div class="bg-surface border border-line rounded-xl p-5 card-shadow">
         <h3 class="text-sm font-semibold text-ink mb-4">Sector Allocation</h3>
         <div id="ins-sectors" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- Risk & correlation -->
+    <div id="risk-card" class="hidden bg-surface border border-line rounded-xl p-5 card-shadow mt-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-ink">Risk &amp; Correlation</h3>
+        <span id="risk-benchmark" class="text-xs text-muted"></span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Annualised standard deviation of daily portfolio returns. Higher = more volatile.">Volatility<i class="tip-icon">i</i></p>
+          <p id="risk-vol" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Annualised return implied by the daily returns over the lookback window.">Ann. Return<i class="tip-icon">i</i></p>
+          <p id="risk-ret" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Return per unit of total risk (return ÷ volatility). Higher is better; >1 is good.">Sharpe<i class="tip-icon">i</i></p>
+          <p id="risk-sharpe" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Like Sharpe but only penalises downside volatility. Higher is better.">Sortino<i class="tip-icon">i</i></p>
+          <p id="risk-sortino" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Largest peak-to-trough decline over the lookback window.">Max Drawdown<i class="tip-icon">i</i></p>
+          <p id="risk-dd" class="text-lg font-bold font-mono text-neg mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Sensitivity of the portfolio to the benchmark. 1 = moves with the market.">Beta<i class="tip-icon">i</i></p>
+          <p id="risk-beta" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Per-Holding Risk</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
+                  <th class="px-2 py-2 text-left">Ticker</th>
+                  <th class="px-2 py-2 text-right">Weight</th>
+                  <th class="px-2 py-2 text-right">Volatility</th>
+                  <th class="px-2 py-2 text-right">Beta</th>
+                </tr>
+              </thead>
+              <tbody id="risk-positions"></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Correlation Matrix</p>
+          <div id="risk-corr" class="overflow-x-auto"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -519,12 +577,37 @@
     </div>
   </div>
 
+  <!-- ══ COMPARE SECTION ════════════════════════════════════════════════ -->
+  <div x-section id="section-compare" class="hidden">
+    <div class="mb-5">
+      <h2 class="text-lg font-semibold text-ink">Compare Stocks</h2>
+      <p class="text-xs text-muted mt-0.5">Stack up to four tickers side by side on valuation, profitability and growth. Best value in each row is highlighted.</p>
+    </div>
+    <div class="flex gap-3 mb-6">
+      <input id="compare-input" type="text" placeholder="Comma-separated, e.g. AAPL, MSFT, NVDA"
+             class="flex-1 bg-surface border border-line rounded-lg px-4 py-2.5 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent uppercase"
+             onkeydown="if(event.key==='Enter') runCompare()" />
+      <button onclick="runCompare()"
+              class="px-5 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition flex items-center gap-2 shadow-sm">
+        <svg id="compare-spinner" class="hidden animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+        </svg>
+        Compare
+      </button>
+    </div>
+    <div id="compare-placeholder" class="rounded-xl border border-line bg-surface p-6 text-muted text-sm card-shadow">
+      Enter two or more tickers above to see a side-by-side comparison.
+    </div>
+    <div id="compare-result" class="hidden overflow-x-auto rounded-xl border border-line bg-surface card-shadow"></div>
+  </div>
+
   <!-- ══ REPORTS SECTION ════════════════════════════════════════════════ -->
   <div x-section id="section-reports" class="hidden">
     <div class="flex items-center justify-between mb-4">
       <div>
         <h2 class="text-lg font-semibold text-ink">Daily Portfolio Report</h2>
-        <p class="text-xs text-muted mt-0.5">An AI health check across all your holdings. Runs automatically Mon–Fri at 4:15pm ET.</p>
+        <p class="text-xs text-muted mt-0.5">An AI health check across all your holdings. Automatic scheduling is paused — click "Generate Now" to run on demand.</p>
       </div>
       <button onclick="triggerReport()"
               class="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium transition flex items-center gap-2 shadow-sm">

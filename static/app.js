@@ -18,7 +18,7 @@ setInterval(updateClock, 1000);
 
 /* ── Section navigation ─────────────────────────────────────────────────── */
 function showSection(name) {
-  ['portfolio', 'research', 'fundamentals', 'watchlist', 'reports'].forEach(s => {
+  ['portfolio', 'research', 'fundamentals', 'watchlist', 'compare', 'reports'].forEach(s => {
     document.getElementById(`section-${s}`).classList.toggle('hidden', s !== name);
   });
   document.querySelectorAll('[data-nav]').forEach(btn => {
@@ -144,11 +144,68 @@ async function loadPortfolio() {
 
     loadPortfolioInsights();
     loadEquityChart();
+    loadPortfolioRisk();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
     summary.classList.add('hidden');
     document.getElementById('portfolio-insights').classList.add('hidden');
     document.getElementById('equity-chart-card').classList.add('hidden');
+    document.getElementById('risk-card').classList.add('hidden');
+  }
+}
+
+/* ── Risk & correlation ─────────────────────────────────────────────────────── */
+function corrCellStyle(v) {
+  // Diverging colour scale: +1 green, 0 neutral, −1 red. Alpha scales with |v|.
+  if (v == null) return 'background:rgb(var(--surface-2))';
+  const a = Math.min(Math.abs(v), 1) * 0.55 + 0.08;
+  const rgb = v >= 0 ? '16,185,129' : '239,83,80';
+  return `background:rgba(${rgb},${a.toFixed(2)})`;
+}
+
+async function loadPortfolioRisk() {
+  const card = document.getElementById('risk-card');
+  try {
+    const d = await apiFetch('/api/portfolio/risk');
+    if (!d.positions || !d.positions.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    document.getElementById('risk-benchmark').textContent =
+      `vs ${d.benchmark} · ${d.observations} trading days`;
+
+    const set = (id, txt) => { document.getElementById(id).textContent = txt; };
+    set('risk-vol',     d.annual_volatility_pct != null ? `${d.annual_volatility_pct.toFixed(1)}%` : '—');
+    set('risk-ret',     d.annual_return_pct != null ? `${d.annual_return_pct >= 0 ? '+' : ''}${d.annual_return_pct.toFixed(1)}%` : '—');
+    set('risk-sharpe',  d.sharpe_ratio != null ? d.sharpe_ratio.toFixed(2) : '—');
+    set('risk-sortino', d.sortino_ratio != null ? d.sortino_ratio.toFixed(2) : '—');
+    set('risk-dd',      d.max_drawdown_pct != null ? `${d.max_drawdown_pct.toFixed(1)}%` : '—');
+    set('risk-beta',    d.beta != null ? d.beta.toFixed(2) : '—');
+
+    // Colour the return metric by sign.
+    const retEl = document.getElementById('risk-ret');
+    retEl.className = `text-lg font-bold font-mono mt-1 ${d.annual_return_pct == null ? 'text-ink' : d.annual_return_pct >= 0 ? 'text-pos' : 'text-neg'}`;
+
+    /* Per-holding risk table */
+    document.getElementById('risk-positions').innerHTML = d.positions.map(p => `
+      <tr class="border-b border-line last:border-0">
+        <td class="px-2 py-2 font-mono font-semibold text-accent">${p.ticker}</td>
+        <td class="px-2 py-2 text-right tabular-nums text-ink">${p.weight_pct != null ? p.weight_pct.toFixed(1) + '%' : '—'}</td>
+        <td class="px-2 py-2 text-right tabular-nums text-muted">${p.annual_volatility_pct != null ? p.annual_volatility_pct.toFixed(1) + '%' : '—'}</td>
+        <td class="px-2 py-2 text-right tabular-nums text-muted">${p.beta != null ? p.beta.toFixed(2) : '—'}</td>
+      </tr>`).join('');
+
+    /* Correlation heatmap */
+    const { tickers, matrix } = d.correlation;
+    const head = `<tr><th class="px-2 py-1.5"></th>${tickers.map(t =>
+      `<th class="px-2 py-1.5 text-xs font-mono text-muted">${t}</th>`).join('')}</tr>`;
+    const body = matrix.map((row, i) => `<tr>
+        <th class="px-2 py-1.5 text-xs font-mono text-muted text-left">${tickers[i]}</th>
+        ${row.map(v => `<td class="px-2 py-1.5 text-center tabular-nums text-xs text-ink" style="${corrCellStyle(v)}">${v != null ? v.toFixed(2) : '—'}</td>`).join('')}
+      </tr>`).join('');
+    document.getElementById('risk-corr').innerHTML =
+      `<table class="w-full border-collapse text-sm"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  } catch (e) {
+    card.classList.add('hidden');
   }
 }
 
@@ -913,6 +970,60 @@ async function removeWatchlist(ticker) {
     loadWatchlist();
   } catch (e) {
     showToast(e.message, 'error');
+  }
+}
+
+/* ── Compare ──────────────────────────────────────────────────────────────── */
+function fmtCompare(v, format) {
+  if (v == null || v === '') return '—';
+  switch (format) {
+    case 'money':   return '$' + fmt(v);
+    case 'compact': return '$' + fmtK(v);
+    case 'pct':     return `${Number(v).toFixed(2)}%`;
+    case 'ratio':   return `${Number(v).toFixed(2)}×`;
+    default:        return String(v);
+  }
+}
+
+async function runCompare() {
+  const input = document.getElementById('compare-input');
+  const placeholder = document.getElementById('compare-placeholder');
+  const result = document.getElementById('compare-result');
+  const spinner = document.getElementById('compare-spinner');
+
+  const raw = (input.value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const tickers = [...new Set(raw)];
+  if (tickers.length < 2) { showToast('Enter at least two tickers, separated by commas.', 'error'); return; }
+  if (tickers.length > 4) { showToast('Compare up to four tickers at a time.', 'error'); return; }
+
+  spinner.classList.remove('hidden');
+  try {
+    const d = await apiFetch(`/api/compare?tickers=${encodeURIComponent(tickers.join(','))}`);
+    placeholder.classList.add('hidden');
+    result.classList.remove('hidden');
+
+    const head = `<tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
+        <th class="px-4 py-3 text-left">Metric</th>
+        ${d.tickers.map(t => `<th class="px-4 py-3 text-right">
+          <span class="font-mono font-semibold text-accent">${t}</span>
+          ${d.names[t] ? `<p class="text-[10px] font-normal normal-case text-muted truncate max-w-[140px] ml-auto">${d.names[t]}</p>` : ''}
+        </th>`).join('')}
+      </tr>`;
+
+    const rows = d.metrics.map(m => `<tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
+        <td class="px-4 py-2.5 text-muted text-xs">${m.label}</td>
+        ${d.tickers.map(t => {
+          const isBest = m.best === t;
+          const cls = isBest ? 'text-pos font-semibold' : 'text-ink';
+          return `<td class="px-4 py-2.5 text-right tabular-nums ${cls}">${fmtCompare(m.values[t], m.format)}</td>`;
+        }).join('')}
+      </tr>`).join('');
+
+    result.innerHTML = `<table class="w-full text-sm"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    spinner.classList.add('hidden');
   }
 }
 

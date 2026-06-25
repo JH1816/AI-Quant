@@ -23,6 +23,8 @@ from core.cost_basis import compute_holding
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
 from core.fundamentals_engine import extract_fundamentals
 from core.portfolio_insights import build_portfolio_insights
+from core.risk_engine import compute_portfolio_risk, DEFAULT_BENCHMARK
+from core.comparison import build_comparison
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -56,13 +58,17 @@ async def run_daily_report():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    # Run Monday–Friday at 16:15 Eastern (handles EST/EDT automatically)
-    scheduler.add_job(
-        run_daily_report,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone="America/New_York"),
-        id="daily_report",
-        replace_existing=True,
-    )
+    # NOTE: The scheduled daily LLM report is TEMPORARILY DISABLED to conserve
+    # API tokens/quota. Re-enable by uncommenting the add_job block below.
+    # The manual POST /api/report/trigger endpoint still works in the meantime.
+    #
+    # # Run Monday–Friday at 16:15 Eastern (handles EST/EDT automatically)
+    # scheduler.add_job(
+    #     run_daily_report,
+    #     CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone="America/New_York"),
+    #     id="daily_report",
+    #     replace_existing=True,
+    # )
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -124,6 +130,14 @@ class TransactionIn(BaseModel):
 async def _gather_blocking(func, items):
     """Run blocking func(item) for each item concurrently in threads, order preserved."""
     return await asyncio.gather(*(asyncio.to_thread(func, item) for item in items))
+
+
+def _close_series(ticker: str, period: str = "1y") -> pd.Series:
+    """Blocking close-price fetch; empty Series on no data (used in thread fan-out)."""
+    df = _fetch_ohlcv(ticker, period)
+    if df.empty:
+        return pd.Series(dtype=float)
+    return df["Close"]
 
 
 def _enrich_position(pos: dict) -> dict:
@@ -230,14 +244,8 @@ async def get_portfolio_chart():
     tickers = list(trades_by_ticker.keys())
 
     # Fetch 2y OHLCV for every ticker concurrently
-    def _fetch_close(ticker: str) -> pd.Series:
-        df = _fetch_ohlcv(ticker, "2y")
-        if df.empty:
-            return pd.Series(dtype=float)
-        return df["Close"]
-
     close_series_list = await asyncio.gather(
-        *(asyncio.to_thread(_fetch_close, t) for t in tickers)
+        *(asyncio.to_thread(_close_series, t, "2y") for t in tickers)
     )
     close_by_ticker: dict[str, pd.Series] = {
         t: s for t, s in zip(tickers, close_series_list) if not s.empty
@@ -278,6 +286,44 @@ async def get_portfolio_chart():
         cost_bases.append(round(cb, 2))
 
     return {"dates": dates, "portfolio_values": portfolio_values, "cost_basis": cost_bases}
+
+
+@app.get("/api/portfolio/risk")
+async def get_portfolio_risk():
+    """Portfolio-level risk: volatility, Sharpe/Sortino, drawdown, beta, correlation."""
+    positions = get_all_positions()
+    if not positions:
+        return compute_portfolio_risk([], {}, None, DEFAULT_BENCHMARK)
+
+    tickers = [p["ticker"] for p in positions]
+    # One concurrent fan-out for every holding plus the benchmark.
+    series = await asyncio.gather(
+        *(asyncio.to_thread(_close_series, t, "1y") for t in tickers + [DEFAULT_BENCHMARK])
+    )
+    close_by_ticker = {t: s for t, s in zip(tickers, series[:-1]) if not s.empty}
+    benchmark_close = series[-1]
+    return compute_portfolio_risk(
+        positions,
+        close_by_ticker,
+        benchmark_close if not benchmark_close.empty else None,
+        DEFAULT_BENCHMARK,
+    )
+
+
+@app.get("/api/compare")
+async def compare_tickers(tickers: str):
+    """Side-by-side fundamentals comparison for up to 4 comma-separated tickers."""
+    syms = list(dict.fromkeys(  # de-dupe, preserve order
+        t.strip().upper() for t in tickers.split(",") if t.strip()
+    ))
+    if not syms:
+        raise HTTPException(status_code=400, detail="Provide at least one ticker.")
+    if len(syms) > 4:
+        raise HTTPException(status_code=400, detail="Compare up to 4 tickers at once.")
+
+    results = await _gather_blocking(_safe_fundamentals, syms)
+    data_by_ticker = {t: r for t, r in zip(syms, results)}
+    return build_comparison(syms, data_by_ticker)
 
 
 @app.post("/api/portfolio", status_code=201)
