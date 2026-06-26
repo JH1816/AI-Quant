@@ -1,7 +1,8 @@
 import json
 import os
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 from agents.config import MODEL_NAME
@@ -26,32 +27,34 @@ When given a quantitative data dictionary for a stock you will produce a structu
 
 Be concise, precise, and data-driven. Always reference the actual numbers from the data provided."""
 
-_model = None
+_client = None
 
 
-def _get_model():
-    global _model
-    if _model is None:
+def _get_client():
+    global _client
+    if _client is None:
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise RuntimeError(
                 "GOOGLE_API_KEY is not set — required for AI analysis. "
                 "Add it to your .env file."
             )
-        genai.configure(api_key=api_key)
-        _model = genai.GenerativeModel(
-            model_name=MODEL_NAME,
-            system_instruction=_SYSTEM_PROMPT,
-        )
-    return _model
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 
 def analyze_ticker(indicator_dict: dict) -> str:
-    model = _get_model()
+    client = _get_client()
     try:
-        response = model.generate_content(
-            "Please analyse the following quantitative data and produce your full report:\n\n"
-            f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=(
+                "Please analyse the following quantitative data and produce your full report:\n\n"
+                f"```json\n{json.dumps(indicator_dict, indent=2)}\n```"
+            ),
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+            ),
         )
     except Exception as exc:
         msg = str(exc)
@@ -59,7 +62,7 @@ def analyze_ticker(indicator_dict: dict) -> str:
             raise RuntimeError("Gemini API quota exceeded — try again later.") from exc
         raise RuntimeError(f"Gemini API error: {msg}") from exc
 
-    if not getattr(response, "candidates", None):
+    if not response.text:
         raise RuntimeError(
             "Gemini returned an empty or blocked response — safety filters may have triggered."
         )
