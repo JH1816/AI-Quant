@@ -35,9 +35,11 @@ def build_portfolio_insights(positions: list[dict], data_by_ticker: dict) -> dic
         f = data_by_ticker.get(ticker)
 
         price = sector = rate = None
+        quote_type = ""
         if f:
             price = _num(f.get("price", {}).get("current"))
             sector = f.get("profile", {}).get("sector")
+            quote_type = (f.get("profile", {}).get("quote_type") or "").upper()
             rate = _num(f.get("dividends", {}).get("rate"))
 
         value = round(price * shares, 2) if price is not None else None
@@ -49,7 +51,12 @@ def build_portfolio_insights(positions: list[dict], data_by_ticker: dict) -> dic
 
         if value is not None:
             total_value += value
-            bucket = sector or "Unknown"
+            if sector:
+                bucket = sector
+            elif quote_type in {"ETF", "MUTUALFUND", "INDEX"}:
+                bucket = "ETF / Fund"
+            else:
+                bucket = "Unknown"
             sector_values[bucket] = sector_values.get(bucket, 0.0) + value
         annual_income += annual_div
 

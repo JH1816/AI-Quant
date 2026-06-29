@@ -255,6 +255,7 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
         "profile": {
             "name": _pick(info, "longName", "shortName"),
             "sector": info.get("sector"),
+            "quote_type": info.get("quoteType"),
             "industry": info.get("industry"),
             "country": info.get("country"),
             "website": info.get("website"),
@@ -316,7 +317,14 @@ def extract_fundamentals(ticker_symbol: str) -> dict:
         },
     }
 
-    _FUND_CACHE[ticker_symbol] = (now, result)
+    # Cache only "complete enough" responses. Under Yahoo rate-limiting, ``.info``
+    # comes back with name+price but no ``assetProfile`` (sector/industry) — caching
+    # that partial reading would lock "Unknown" in for an hour. Funds legitimately
+    # have no sector, so they are still cached.
+    quote_type = (info.get("quoteType") or "").upper()
+    is_fund = quote_type in {"ETF", "MUTUALFUND", "INDEX", "CURRENCY"}
+    if result["profile"]["sector"] or is_fund:
+        _FUND_CACHE[ticker_symbol] = (now, result)
     return result
 
 
