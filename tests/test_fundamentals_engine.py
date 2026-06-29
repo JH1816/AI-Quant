@@ -212,3 +212,44 @@ def test_missing_info_raises():
     with patch.object(fe, "_get_ticker", return_value=Empty()):
         with pytest.raises(ValueError, match="No fundamental data"):
             extract_fundamentals("FAKE")
+
+
+# ── caching behaviour ────────────────────────────────────────────────────────────
+
+class _MinimalTicker:
+    """Name + price present, plus whatever extra info is passed in."""
+    income_stmt = balance_sheet = cashflow = None
+    dividends = None
+
+    def __init__(self, **extra):
+        self.info = {"longName": "Foo Inc", "currentPrice": 50.0, **extra}
+
+
+def test_normal_equity_is_cached():
+    fe._FUND_CACHE.clear()
+    tk = _MinimalTicker(sector="Technology", quoteType="EQUITY")
+    with patch.object(fe, "_get_ticker", return_value=tk):
+        r = extract_fundamentals("CACHEME")
+    assert r["profile"]["sector"] == "Technology"
+    assert "CACHEME" in fe._FUND_CACHE
+
+
+def test_partial_equity_not_cached():
+    """A throttled response (name+price, no sector, EQUITY) must not poison the cache."""
+    fe._FUND_CACHE.clear()
+    tk = _MinimalTicker(quoteType="EQUITY")  # no sector
+    with patch.object(fe, "_get_ticker", return_value=tk):
+        r = extract_fundamentals("PARTIAL")
+    assert r["profile"]["sector"] is None
+    assert "PARTIAL" not in fe._FUND_CACHE
+
+
+def test_etf_cached_and_quote_type_exposed():
+    """ETFs legitimately have no sector — still cache them and expose quote_type."""
+    fe._FUND_CACHE.clear()
+    tk = _MinimalTicker(quoteType="ETF")  # no sector, but a fund
+    with patch.object(fe, "_get_ticker", return_value=tk):
+        r = extract_fundamentals("VWRA")
+    assert r["profile"]["sector"] is None
+    assert r["profile"]["quote_type"] == "ETF"
+    assert "VWRA" in fe._FUND_CACHE

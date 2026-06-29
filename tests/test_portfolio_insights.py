@@ -71,6 +71,30 @@ def test_unknown_sector_bucket():
     assert r["sector_allocation"][0]["sector"] == "Unknown"
 
 
+def test_etf_without_sector_bucketed_as_fund():
+    """An ETF (no GICS sector) should label as 'ETF / Fund', not 'Unknown'."""
+    positions = [{"ticker": "VWRA", "shares": 1}]
+    data = {"VWRA": {
+        "price": {"current": 100.0},
+        "profile": {"sector": None, "quote_type": "ETF"},
+        "dividends": {"rate": None},
+    }}
+    r = build_portfolio_insights(positions, data)
+    assert r["sector_allocation"][0]["sector"] == "ETF / Fund"
+
+
+def test_equity_without_sector_still_unknown():
+    """A throttled equity (no sector, quoteType EQUITY) stays 'Unknown'."""
+    positions = [{"ticker": "MSFT", "shares": 1}]
+    data = {"MSFT": {
+        "price": {"current": 100.0},
+        "profile": {"sector": None, "quote_type": "EQUITY"},
+        "dividends": {"rate": None},
+    }}
+    r = build_portfolio_insights(positions, data)
+    assert r["sector_allocation"][0]["sector"] == "Unknown"
+
+
 def test_empty_portfolio():
     r = build_portfolio_insights([], {})
     assert r["total_value"] == 0.0
