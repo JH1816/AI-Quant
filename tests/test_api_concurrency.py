@@ -270,3 +270,77 @@ def test_enriched_runs_concurrently(client, monkeypatch):
     assert len(resp.json()) == 5
     # Serial would be 5 × 0.3 = 1.5 s; concurrent should be ~0.3–0.5 s.
     assert elapsed < 1.0, f"Expected concurrent execution but took {elapsed:.2f}s"
+
+
+# ── input validation (transaction & position write paths) ─────────────────────
+
+def test_transaction_nan_shares_rejected():
+    """NaN slips past a plain ``<= 0`` check — the schema validator must reject it.
+
+    Tested at the model layer: JSON has no NaN literal, so a non-standard client
+    is the only way NaN reaches the field, and FastAPI can't echo NaN back into a
+    422 body — but the validator logic is what guards the DB, so assert it directly.
+    """
+    from pydantic import ValidationError
+    from main import TransactionIn
+
+    with pytest.raises(ValidationError):
+        TransactionIn(ticker="AAPL", side="BUY", shares=float("nan"), price=100.0)
+
+
+def test_transaction_negative_shares_rejected(client):
+    resp = client.post(
+        "/api/transactions",
+        json={"ticker": "AAPL", "side": "BUY", "shares": -5.0, "price": 100.0},
+    )
+    assert resp.status_code == 422
+
+
+def test_transaction_zero_price_rejected(client):
+    resp = client.post(
+        "/api/transactions",
+        json={"ticker": "AAPL", "side": "BUY", "shares": 5.0, "price": 0.0},
+    )
+    assert resp.status_code == 422
+
+
+def test_transaction_negative_fee_rejected(client):
+    resp = client.post(
+        "/api/transactions",
+        json={"ticker": "AAPL", "side": "BUY", "shares": 5.0, "price": 100.0, "fee": -1.0},
+    )
+    assert resp.status_code == 422
+
+
+def test_transaction_future_date_rejected(client):
+    resp = client.post(
+        "/api/transactions",
+        json={"ticker": "AAPL", "side": "BUY", "shares": 5.0, "price": 100.0, "trade_date": "2999-01-01"},
+    )
+    assert resp.status_code == 422
+
+
+def test_valid_transaction_accepted(client):
+    """Regression guard: a clean BUY still records (201)."""
+    resp = client.post(
+        "/api/transactions",
+        json={"ticker": "AAPL", "side": "BUY", "shares": 5.0, "price": 100.0},
+    )
+    assert resp.status_code == 201
+
+
+def test_position_infinite_shares_rejected():
+    """Inf must be rejected by the PositionIn schema (asserted at the model layer)."""
+    from pydantic import ValidationError
+    from main import PositionIn
+
+    with pytest.raises(ValidationError):
+        PositionIn(ticker="AAPL", shares=float("inf"), average_buy_price=100.0)
+
+
+def test_position_negative_price_rejected(client):
+    resp = client.post(
+        "/api/portfolio",
+        json={"ticker": "AAPL", "shares": 5.0, "average_buy_price": -100.0},
+    )
+    assert resp.status_code == 422

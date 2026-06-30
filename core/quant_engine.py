@@ -63,6 +63,56 @@ def _bbands(series: pd.Series, length: int = 20, std: float = 2.0):
     return mid + std * dev, mid, mid - std * dev
 
 
+def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
+    """True Range: max of (h-l, |h-prev_close|, |l-prev_close|)."""
+    prev_close = close.shift(1)
+    ranges = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    )
+    return ranges.max(axis=1)
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> pd.Series:
+    """Wilder's Average True Range (Wilder smoothing via ewm alpha=1/length)."""
+    tr = _true_range(high, low, close)
+    return tr.ewm(alpha=1 / length, adjust=False).mean()
+
+
+def _stochastic(high: pd.Series, low: pd.Series, close: pd.Series, k: int = 14, d: int = 3):
+    """Stochastic oscillator. %K = 100*(close-LL)/(HH-LL); %D = SMA(%K, d)."""
+    lowest = low.rolling(window=k).min()
+    highest = high.rolling(window=k).max()
+    rng = highest - lowest
+    percent_k = 100 * (close - lowest) / rng
+    percent_d = percent_k.rolling(window=d).mean()
+    return percent_k, percent_d
+
+
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14):
+    """Average Directional Index with +DI / -DI (Wilder smoothing). Returns (adx, +DI, -DI)."""
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    tr = _true_range(high, low, close)
+    atr = tr.ewm(alpha=1 / length, adjust=False).mean()
+
+    plus_di = 100 * plus_dm.ewm(alpha=1 / length, adjust=False).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=1 / length, adjust=False).mean() / atr
+
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    adx = dx.ewm(alpha=1 / length, adjust=False).mean()
+    return adx, plus_di, minus_di
+
+
+def _obv(close: pd.Series, volume: pd.Series) -> pd.Series:
+    """On-Balance Volume: cumulative volume signed by the day's close direction."""
+    direction = close.diff().apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
+    return (direction * volume).cumsum()
+
+
 def extract_quant_indicators(ticker_symbol: str) -> dict:
     ticker_symbol = ticker_symbol.upper()
     df = _fetch_ohlcv(ticker_symbol, "1y")
@@ -93,6 +143,12 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
 
     # --- Bollinger Bands (standard 20-period) ---
     bb_upper, bb_middle, bb_lower = _bbands(close, 20, 2.0)
+
+    # --- ATR / Stochastic / ADX / OBV ---
+    atr = _atr(high, low, close, 14)
+    stoch_k, stoch_d = _stochastic(high, low, close, 14, 3)
+    adx, plus_di, minus_di = _adx(high, low, close, 14)
+    obv = _obv(close, vol)
 
     # --- Fibonacci Levels ---
     week52_high = _safe(high.max())
@@ -182,6 +238,17 @@ def extract_quant_indicators(ticker_symbol: str) -> dict:
             "lower":  _safe(bb_lower.iloc[-1]),
         },
         "fibonacci_levels": fib_levels,
+        "atr_14": _safe(atr.iloc[-1]),
+        "stochastic": {
+            "k": _safe(stoch_k.iloc[-1]),
+            "d": _safe(stoch_d.iloc[-1]),
+        },
+        "adx": {
+            "adx":      _safe(adx.iloc[-1]),
+            "plus_di":  _safe(plus_di.iloc[-1]),
+            "minus_di": _safe(minus_di.iloc[-1]),
+        },
+        "obv": _safe(obv.iloc[-1]),
         "volume": {
             "latest":      latest_vol,
             "ma_20":       vol_ma20,

@@ -47,6 +47,29 @@ def _beta(asset_returns: pd.Series, bench_returns: pd.Series):
     return float(a.cov(b)) / var
 
 
+def _historical_var(returns: pd.Series, confidence: float = 0.95):
+    """Historical (non-parametric) Value-at-Risk as a positive daily-loss fraction.
+
+    The empirical ``(1 - confidence)`` quantile of daily returns; a left-tail
+    loss is reported as a positive magnitude (e.g. 0.021 → a 2.1% daily VaR).
+    """
+    if returns is None or returns.empty:
+        return None
+    q = returns.quantile(1 - confidence)
+    return float(-q)
+
+
+def _cvar(returns: pd.Series, confidence: float = 0.95):
+    """Conditional VaR (expected shortfall): mean loss in the worst tail."""
+    if returns is None or returns.empty:
+        return None
+    threshold = returns.quantile(1 - confidence)
+    tail = returns[returns <= threshold]
+    if tail.empty:
+        return None
+    return float(-tail.mean())
+
+
 def _empty_result(benchmark: str) -> dict:
     return {
         "benchmark": benchmark,
@@ -57,6 +80,9 @@ def _empty_result(benchmark: str) -> dict:
         "sortino_ratio": None,
         "max_drawdown_pct": None,
         "beta": None,
+        "var_95_pct": None,
+        "var_99_pct": None,
+        "cvar_95_pct": None,
         "correlation": {"tickers": [], "matrix": []},
         "positions": [],
     }
@@ -153,6 +179,9 @@ def compute_portfolio_risk(
         "sortino_ratio": _round(sortino),
         "max_drawdown_pct": _round(max_dd * 100),
         "beta": _round(portfolio_beta),
+        "var_95_pct": _round(_historical_var(port_ret, 0.95) * 100),
+        "var_99_pct": _round(_historical_var(port_ret, 0.99) * 100),
+        "cvar_95_pct": _round(_cvar(port_ret, 0.95) * 100),
         "correlation": {"tickers": corr_tickers, "matrix": matrix},
         "positions": per_position,
     }

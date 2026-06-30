@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import asyncio
 from datetime import datetime, timezone, date as date_type
 from contextlib import asynccontextmanager
@@ -87,6 +88,15 @@ app.add_middleware(
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
+def _positive_finite(v: float, name: str) -> float:
+    """Reject NaN/Inf and non-positive numbers (NaN slips past plain ``<= 0``)."""
+    if not math.isfinite(v):
+        raise ValueError(f"{name} must be a finite number.")
+    if v <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return v
+
+
 class PositionIn(BaseModel):
     ticker: str
     shares: float
@@ -96,6 +106,16 @@ class PositionIn(BaseModel):
     @classmethod
     def normalize_ticker(cls, v: str) -> str:
         return v.strip().upper()
+
+    @field_validator('shares')
+    @classmethod
+    def check_shares(cls, v: float) -> float:
+        return _positive_finite(v, "shares")
+
+    @field_validator('average_buy_price')
+    @classmethod
+    def check_price(cls, v: float) -> float:
+        return _positive_finite(v, "average_buy_price")
 
 
 class TickerIn(BaseModel):
@@ -119,6 +139,38 @@ class TransactionIn(BaseModel):
     @classmethod
     def normalize_ticker(cls, v: str) -> str:
         return v.strip().upper()
+
+    @field_validator('shares')
+    @classmethod
+    def check_shares(cls, v: float) -> float:
+        return _positive_finite(v, "shares")
+
+    @field_validator('price')
+    @classmethod
+    def check_price(cls, v: float) -> float:
+        return _positive_finite(v, "price")
+
+    @field_validator('fee')
+    @classmethod
+    def check_fee(cls, v: float) -> float:
+        if not math.isfinite(v):
+            raise ValueError("fee must be a finite number.")
+        if v < 0:
+            raise ValueError("fee cannot be negative.")
+        return v
+
+    @field_validator('trade_date')
+    @classmethod
+    def check_trade_date(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return v
+        try:
+            parsed = datetime.fromisoformat(v.strip()).date()
+        except ValueError:
+            raise ValueError("trade_date must be an ISO date (YYYY-MM-DD).")
+        if parsed > datetime.now(timezone.utc).date():
+            raise ValueError("trade_date cannot be in the future.")
+        return v
 
 
 # ─── Concurrency helpers ──────────────────────────────────────────────────────
