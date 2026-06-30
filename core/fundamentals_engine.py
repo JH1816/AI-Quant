@@ -11,8 +11,8 @@ sanitiser ``_safe`` is reused from ``quant_engine`` to avoid duplication.
 import time
 
 import pandas as pd
-import yfinance as yf
 
+from core import data_providers
 from core.quant_engine import _safe
 
 # Fundamentals change slowly — cache for an hour, keyed by ticker.
@@ -20,8 +20,13 @@ _FUND_CACHE: dict = {}
 _CACHE_TTL = 3600  # seconds
 
 
-def _get_ticker(symbol: str) -> yf.Ticker:
-    return yf.Ticker(symbol)
+def _get_ticker(symbol: str):
+    """Return a yfinance.Ticker-shaped fundamentals source via the provider layer.
+
+    Kept as a thin seam so tests can patch it and so the data source (Yahoo /
+    Alpha Vantage, with fallback) is configurable in one place.
+    """
+    return data_providers.get_fundamentals_source(symbol)
 
 
 def _pick(info: dict, *keys):

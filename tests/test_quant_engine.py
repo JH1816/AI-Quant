@@ -45,7 +45,7 @@ REQUIRED_KEYS = {
 
 @pytest.fixture()
 def result(mock_ohlcv_df):
-    with patch("core.quant_engine.yf.download", return_value=mock_ohlcv_df):
+    with patch("core.data_providers.yf.download", return_value=mock_ohlcv_df):
         return extract_quant_indicators("AAPL")
 
 
@@ -54,7 +54,7 @@ def test_returns_required_keys(result):
 
 
 def test_ticker_uppercased(mock_ohlcv_df):
-    with patch("core.quant_engine.yf.download", return_value=mock_ohlcv_df):
+    with patch("core.data_providers.yf.download", return_value=mock_ohlcv_df):
         r = extract_quant_indicators("aapl")
     assert r["ticker"] == "AAPL"
 
@@ -147,7 +147,7 @@ def test_obv_rises_with_monotonic_closes():
 
 def test_empty_data_raises():
     empty_df = pd.DataFrame()
-    with patch("core.quant_engine.yf.download", return_value=empty_df):
+    with patch("core.data_providers.yf.download", return_value=empty_df):
         with pytest.raises(ValueError, match="No data returned"):
             extract_quant_indicators("FAKE")
 
@@ -164,6 +164,6 @@ def test_insufficient_data_raises():
         },
         index=dates,
     )
-    with patch("core.quant_engine.yf.download", return_value=small_df):
+    with patch("core.data_providers.yf.download", return_value=small_df):
         with pytest.raises(ValueError, match="Insufficient data"):
             extract_quant_indicators("NEW")

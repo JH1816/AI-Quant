@@ -1,22 +1,26 @@
 import math
 import time
-import yfinance as yf
 import pandas as pd
+
+from core import data_providers
 
 _DOWNLOAD_CACHE: dict = {}
 _CACHE_TTL = 300  # seconds; re-fetch after 5 minutes
 
 
 def _fetch_ohlcv(ticker: str, period: str) -> pd.DataFrame:
-    """Download OHLCV data with a 5-minute in-process cache."""
+    """Download normalised OHLCV with a 5-minute in-process cache.
+
+    The actual network call is delegated to ``core.data_providers`` so the data
+    source (Yahoo / Stooq / Alpha Vantage, with automatic fallback) is
+    configurable without touching the indicator maths below.
+    """
     key = (ticker, period)
     now = time.time()
     cached = _DOWNLOAD_CACHE.get(key)
     if cached and (now - cached[0]) < _CACHE_TTL:
         return cached[1].copy()
-    df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    df = data_providers.get_ohlcv(ticker, period)
     _DOWNLOAD_CACHE[key] = (now, df)
     return df.copy()
 

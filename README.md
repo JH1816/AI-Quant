@@ -38,12 +38,30 @@ Get a free key at **aistudio.google.com** → Get API key. Keys with the `AQ.` p
 
 The key is only required for the AI Analysis (`/api/analyze`) and Report (`/api/report/*`) endpoints. All other tabs work without it.
 
+## Market-data sources
+
+Price and fundamentals data flows through a pluggable provider layer
+(`core/data_providers.py`). By default Yahoo (yfinance) is the primary source with
+**Stooq** (keyless) as an automatic fallback when Yahoo rate-limits or returns no
+data. Configure via `.env`:
+
+```bash
+DATA_PROVIDER=yahoo                 # primary: yahoo | stooq | alphavantage
+DATA_PROVIDER_FALLBACKS=stooq       # comma-separated, tried in order
+ALPHAVANTAGE_API_KEY=your_key_here  # only needed if alphavantage is used
+```
+
+Stooq serves prices only; Alpha Vantage serves both prices and fundamentals (free
+key at alphavantage.co). Fundamentals automatically fall back to Yahoo when the
+selected provider can't serve them. The indicator, risk and charting code is
+source-agnostic — it consumes the normalised shapes the provider layer returns.
+
 ## Tech Stack
 
 | Layer | Library |
 |---|---|
 | Backend | FastAPI + Uvicorn |
-| Market data | yfinance |
+| Market data | Pluggable: yfinance (Yahoo) / Stooq / Alpha Vantage |
 | LLM | Google Gemini via `google-genai` SDK |
 | Database | SQLite (`core/db_manager.py`) |
 | Scheduler | APScheduler |
