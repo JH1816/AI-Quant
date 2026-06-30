@@ -466,12 +466,16 @@ async def delete_watchlist_item(ticker: str):
 
 @app.get("/api/chart/{ticker}")
 async def get_chart(ticker: str, period: str = "6mo"):
-    ALLOWED_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y"}
-    if period not in ALLOWED_PERIODS:
+    # Trading-day spans used to slice the display window after SMAs are warmed up.
+    PERIOD_DAYS = {"1mo": 21, "3mo": 63, "6mo": 126, "1y": 252, "2y": 504}
+    if period not in PERIOD_DAYS:
         period = "6mo"
 
     ticker = ticker.strip().upper()
-    df = _fetch_ohlcv(ticker, period)
+    # Always fetch 2y so the 200-day SMA has full warm-up data regardless of the
+    # requested display window. Cached by (ticker, "2y"), so every period button
+    # reuses the same download.
+    df = _fetch_ohlcv(ticker, "2y")
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for '{ticker}'")
 
@@ -483,6 +487,16 @@ async def get_chart(ticker: str, period: str = "6mo"):
     sma50  = _sma(close, 50)
     sma100 = _sma(close, 100)
     sma200 = _sma(close, 200)
+
+    # Compute SMAs over the full 2y series, then trim to the requested window so
+    # the moving-average lines span the entire visible chart instead of only the
+    # portion that has enough look-back inside the display period.
+    rows = len(df)
+    cutoff = df.index[max(0, rows - PERIOD_DAYS[period])]
+    df = df.loc[cutoff:]
+    sma50 = sma50.loc[cutoff:]
+    sma100 = sma100.loc[cutoff:]
+    sma200 = sma200.loc[cutoff:]
 
     candles, vol_series = [], []
     sma50_series, sma100_series, sma200_series = [], [], []

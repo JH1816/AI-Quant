@@ -195,15 +195,15 @@
     <div class="overflow-x-auto rounded-xl border border-line bg-surface card-shadow">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
-            <th class="px-4 py-3 text-left">Ticker</th>
-            <th class="px-4 py-3 text-right">Shares</th>
-            <th class="px-4 py-3 text-right">Avg Cost</th>
-            <th class="px-4 py-3 text-right">Current</th>
-            <th class="px-4 py-3 text-right">Unrealised P&amp;L</th>
-            <th class="px-4 py-3 text-right">Return</th>
-            <th class="px-4 py-3 text-right">Realized P&amp;L</th>
-            <th class="px-4 py-3 text-left">Added</th>
+          <tr id="portfolio-head" class="border-b border-line text-muted text-xs uppercase tracking-wide">
+            <th class="px-4 py-3 text-left cursor-pointer select-none hover:text-ink" data-sort="ticker" onclick="sortPortfolio('ticker')">Ticker<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="shares" onclick="sortPortfolio('shares')">Shares<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="average_buy_price" onclick="sortPortfolio('average_buy_price')">Avg Cost<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="current_price" onclick="sortPortfolio('current_price')">Current<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="unrealised_pnl" onclick="sortPortfolio('unrealised_pnl')">Unrealised P&amp;L<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="return_pct" onclick="sortPortfolio('return_pct')">Return<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-right cursor-pointer select-none hover:text-ink" data-sort="realized_pnl" onclick="sortPortfolio('realized_pnl')">Realized P&amp;L<span class="sort-arrow"></span></th>
+            <th class="px-4 py-3 text-left cursor-pointer select-none hover:text-ink" data-sort="date_added" onclick="sortPortfolio('date_added')">Added<span class="sort-arrow"></span></th>
             <th class="px-4 py-3 text-center"></th>
           </tr>
         </thead>
@@ -390,9 +390,9 @@
           </div>
         </div>
         <div class="flex gap-4 text-xs text-muted mb-2">
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#f59e0b"></span>50-day avg</span>
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#ea580c"></span>100-day avg</span>
-          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#dc2626"></span>200-day avg</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#3b82f6"></span>50-day avg</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#f59e0b"></span>100-day avg</span>
+          <span class="flex items-center gap-1.5"><span class="inline-block w-5 h-0.5" style="background:#ef4444"></span>200-day avg</span>
         </div>
         <div id="price-chart" style="height:320px;"></div>
         <div id="volume-chart" style="height:90px;" class="mt-1"></div>
