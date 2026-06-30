@@ -76,45 +76,94 @@ function pctCell(val) {
   return `<td class="px-4 py-3 text-right tabular-nums font-medium ${cls}">${sign}${val.toFixed(2)}%</td>`;
 }
 
+let _portfolioPositions = [];
+let _portfolioSort = { key: null, dir: 1 };
+
+function sortPortfolio(key) {
+  // Toggle direction when re-clicking the same column; default to descending
+  // for numbers, ascending for ticker/date.
+  if (_portfolioSort.key === key) {
+    _portfolioSort.dir *= -1;
+  } else {
+    _portfolioSort.key = key;
+    _portfolioSort.dir = (key === 'ticker' || key === 'date_added') ? 1 : -1;
+  }
+  renderPortfolioRows();
+}
+
+function renderPortfolioRows() {
+  const tbody = document.getElementById('portfolio-body');
+  const { key, dir } = _portfolioSort;
+
+  const positions = _portfolioPositions.slice();
+  if (key) {
+    positions.sort((a, b) => {
+      let av = a[key], bv = b[key];
+      // Always sink null/undefined values to the bottom regardless of direction.
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (key === 'ticker') return av.localeCompare(bv) * dir;
+      if (key === 'date_added') return (new Date(av) - new Date(bv)) * dir;
+      return (av - bv) * dir;
+    });
+  }
+
+  tbody.innerHTML = positions.map(p => {
+    const currentPrice = p.current_price != null
+      ? `$${p.current_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+      : '<span class="text-muted">—</span>';
+    const avgCost = p.average_buy_price != null
+      ? `$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+      : '—';
+    return `
+      <tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
+        <td class="px-4 py-3 font-mono font-semibold text-accent">${p.ticker}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-ink">${Number(p.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-muted">${avgCost}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-ink">${currentPrice}</td>
+        ${pnlCell(p.unrealised_pnl)}
+        ${pctCell(p.return_pct)}
+        ${pnlCell(p.realized_pnl != null ? p.realized_pnl : null)}
+        <td class="px-4 py-3 text-muted text-xs">${new Date(p.date_added).toLocaleDateString()}</td>
+        <td class="px-4 py-3 text-center whitespace-nowrap">
+          <button onclick="openTradeHistory('${p.ticker}')"
+                  class="px-2.5 py-1 text-xs rounded-md text-accent hover:bg-accent-soft transition mr-1">History</button>
+          <button onclick="deletePosition('${p.ticker}')"
+                  class="px-2.5 py-1 text-xs rounded-md text-neg hover:bg-neg/10 transition">Remove</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  // Reflect current sort state in the header arrows.
+  document.querySelectorAll('#portfolio-head [data-sort]').forEach(th => {
+    const arrow = th.querySelector('.sort-arrow');
+    if (!arrow) return;
+    if (th.dataset.sort === key) {
+      arrow.textContent = dir === 1 ? ' ↑' : ' ↓';
+      th.classList.add('text-ink');
+    } else {
+      arrow.textContent = '';
+      th.classList.remove('text-ink');
+    }
+  });
+}
+
 async function loadPortfolio() {
   const tbody = document.getElementById('portfolio-body');
   const summary = document.getElementById('portfolio-summary');
   try {
     const positions = await apiFetch('/api/portfolio/enriched');
     if (!positions.length) {
+      _portfolioPositions = [];
       tbody.innerHTML = '<tr><td colspan="9" class="text-center py-10 text-muted text-sm">No positions yet. Click "+ Record Trade" to get started.</td></tr>';
       summary.classList.add('hidden');
       document.getElementById('portfolio-insights').classList.add('hidden');
       return;
     }
 
-    const rows = positions.map(p => {
-      const currentPrice = p.current_price != null
-        ? `$${p.current_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
-        : '<span class="text-muted">—</span>';
-      const avgCost = p.average_buy_price != null
-        ? `$${Number(p.average_buy_price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
-        : '—';
-      return `
-        <tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
-          <td class="px-4 py-3 font-mono font-semibold text-accent">${p.ticker}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-ink">${Number(p.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-muted">${avgCost}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-ink">${currentPrice}</td>
-          ${pnlCell(p.unrealised_pnl)}
-          ${pctCell(p.return_pct)}
-          ${pnlCell(p.realized_pnl != null ? p.realized_pnl : null)}
-          <td class="px-4 py-3 text-muted text-xs">${new Date(p.date_added).toLocaleDateString()}</td>
-          <td class="px-4 py-3 text-center whitespace-nowrap">
-            <button onclick="openTradeHistory('${p.ticker}')"
-                    class="px-2.5 py-1 text-xs rounded-md text-accent hover:bg-accent-soft transition mr-1">History</button>
-            <button onclick="deletePosition('${p.ticker}')"
-                    class="px-2.5 py-1 text-xs rounded-md text-neg hover:bg-neg/10 transition">Remove</button>
-          </td>
-        </tr>`;
-    }).join('');
-
-    tbody.innerHTML = rows;
+    _portfolioPositions = positions;
+    renderPortfolioRows();
 
     // Summary strip
     const totalValue = positions.reduce((s, p) => p.current_value != null ? s + p.current_value : s, 0);
@@ -474,9 +523,9 @@ function renderChart(data) {
   });
   candleSeries.setData(data.candles);
 
-  const sma50s  = _priceChart.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
-  const sma100s = _priceChart.addLineSeries({ color: '#ea580c', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
-  const sma200s = _priceChart.addLineSeries({ color: '#dc2626', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const sma50s  = _priceChart.addLineSeries({ color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const sma100s = _priceChart.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const sma200s = _priceChart.addLineSeries({ color: '#ef4444', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
   sma50s.setData(data.sma50);
   sma100s.setData(data.sma100);
   sma200s.setData(data.sma200);
