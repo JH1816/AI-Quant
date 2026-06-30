@@ -91,6 +91,35 @@ def test_beta_against_self_is_one():
     assert res["beta"] == pytest.approx(1.0, abs=1e-6)
 
 
+def test_var_cvar_present_and_typed(two_asset_portfolio):
+    positions, close_by_ticker, bench = two_asset_portfolio
+    res = compute_portfolio_risk(positions, close_by_ticker, bench, "SPY")
+    for key in ("var_95_pct", "var_99_pct", "cvar_95_pct"):
+        assert res[key] is not None
+        assert isinstance(res[key], (int, float))
+
+
+def test_var_99_at_least_var_95(two_asset_portfolio):
+    """A deeper-tail (99%) loss is never smaller than the 95% loss."""
+    positions, close_by_ticker, bench = two_asset_portfolio
+    res = compute_portfolio_risk(positions, close_by_ticker, bench, "SPY")
+    assert res["var_99_pct"] >= res["var_95_pct"]
+
+
+def test_cvar_at_least_var(two_asset_portfolio):
+    """Expected shortfall (CVaR) is at least as large as VaR at the same level."""
+    positions, close_by_ticker, bench = two_asset_portfolio
+    res = compute_portfolio_risk(positions, close_by_ticker, bench, "SPY")
+    assert res["cvar_95_pct"] >= res["var_95_pct"]
+
+
+def test_empty_result_has_var_keys():
+    res = _empty_result("SPY")
+    assert res["var_95_pct"] is None
+    assert res["var_99_pct"] is None
+    assert res["cvar_95_pct"] is None
+
+
 def test_ticker_without_price_data_is_excluded():
     s = _price_series(100.0, [0.01, -0.01] * 60)
     positions = [

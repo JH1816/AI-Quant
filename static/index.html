@@ -281,6 +281,18 @@
           <p class="tip text-xs text-muted" data-tip="Sensitivity of the portfolio to the benchmark. 1 = moves with the market.">Beta<i class="tip-icon">i</i></p>
           <p id="risk-beta" class="text-lg font-bold font-mono text-ink mt-1">—</p>
         </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Historical Value-at-Risk (95%): on a typical bad day (1 in 20), the portfolio is expected to lose at least this much.">VaR 95%<i class="tip-icon">i</i></p>
+          <p id="risk-var95" class="text-lg font-bold font-mono text-neg mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Historical Value-at-Risk (99%): on a severe day (1 in 100), the expected minimum daily loss.">VaR 99%<i class="tip-icon">i</i></p>
+          <p id="risk-var99" class="text-lg font-bold font-mono text-neg mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Conditional VaR (95%) / expected shortfall: the average loss on the worst 5% of days — how bad the tail actually gets.">CVaR 95%<i class="tip-icon">i</i></p>
+          <p id="risk-cvar95" class="text-lg font-bold font-mono text-neg mt-1">—</p>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -421,6 +433,11 @@
               <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="Shares traded. High volume (above 1.5× the 20-day average) confirms a price move has conviction; low volume moves are weaker.">Trading Volume<i class="tip-icon">i</i></span>
               <div id="md-volume" class="space-y-3"></div>
             </div>
+          </div>
+          <!-- Advanced Signals -->
+          <div class="pt-4 border-t border-line">
+            <span class="tip text-xs font-semibold text-muted uppercase tracking-wider mb-3 block" data-tip="Extra indicators: ATR (typical daily price swing), Stochastic (overbought >80 / oversold <20), ADX (trend strength; >25 = trending), and OBV (cumulative volume flow).">Advanced Signals<i class="tip-icon">i</i></span>
+            <div id="md-advanced" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
           </div>
         </div>
       </div>

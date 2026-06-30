@@ -180,6 +180,9 @@ async function loadPortfolioRisk() {
     set('risk-sortino', d.sortino_ratio != null ? d.sortino_ratio.toFixed(2) : '—');
     set('risk-dd',      d.max_drawdown_pct != null ? `${d.max_drawdown_pct.toFixed(1)}%` : '—');
     set('risk-beta',    d.beta != null ? d.beta.toFixed(2) : '—');
+    set('risk-var95',   d.var_95_pct != null ? `−${d.var_95_pct.toFixed(2)}%` : '—');
+    set('risk-var99',   d.var_99_pct != null ? `−${d.var_99_pct.toFixed(2)}%` : '—');
+    set('risk-cvar95',  d.cvar_95_pct != null ? `−${d.cvar_95_pct.toFixed(2)}%` : '—');
 
     // Colour the return metric by sign.
     const retEl = document.getElementById('risk-ret');
@@ -681,6 +684,42 @@ function renderDetails(d) {
       <span class="text-sm font-mono font-semibold ${volColor}">${ratio != null ? ratio.toFixed(2) + 'x' : '—'}</span>
     </div>
     ${volSignal ? `<div class="mt-2 text-center"><span class="text-xs font-bold ${volColor} bg-surface2 px-3 py-1 rounded-full">${volSignal}</span></div>` : ''}
+  `;
+
+  /* ─ Advanced Signals (ATR / Stochastic / ADX / OBV) ─ */
+  const stoch = d.stochastic || {};
+  const adx = d.adx || {};
+  const stochK = stoch.k;
+  const stochColor = stochK == null ? 'text-muted' : stochK > 80 ? 'text-neg' : stochK < 20 ? 'text-pos' : 'text-ink';
+  const stochNote = stochK == null ? '' : stochK > 80 ? 'Overbought' : stochK < 20 ? 'Oversold' : 'Neutral';
+  const adxVal = adx.adx;
+  const adxColor = adxVal == null ? 'text-muted' : adxVal > 25 ? 'text-accent' : 'text-muted';
+  const adxNote = adxVal == null ? '' : adxVal > 25 ? 'Trending' : 'Range-bound';
+  const advTips = {
+    atr: 'Average True Range — the typical daily price swing in dollars. Higher = more volatile; useful for sizing stops.',
+    stoch: 'Stochastic %K / %D momentum oscillator. Above 80 = overbought, below 20 = oversold.',
+    adx: 'Average Directional Index — trend strength (not direction). Above 25 signals a strong trend.',
+    obv: 'On-Balance Volume — running total of volume added on up-days and subtracted on down-days. Rising OBV confirms buying pressure.',
+  };
+  document.getElementById('md-advanced').innerHTML = `
+    <div class="text-center">
+      <span class="tip text-xs text-muted mb-1 inline-block" data-tip="${advTips.atr}">ATR (14)<i class="tip-icon">i</i></span>
+      <p class="text-lg font-bold font-mono text-ink">${d.atr_14 != null ? '$' + fmt(d.atr_14) : '—'}</p>
+    </div>
+    <div class="text-center">
+      <span class="tip text-xs text-muted mb-1 inline-block" data-tip="${advTips.stoch}">Stochastic<i class="tip-icon">i</i></span>
+      <p class="text-lg font-bold font-mono ${stochColor}">${stochK != null ? stochK.toFixed(1) : '—'}</p>
+      ${stochNote ? `<div class="mt-1"><span class="text-xs font-bold ${stochColor}">${stochNote}</span></div>` : ''}
+    </div>
+    <div class="text-center">
+      <span class="tip text-xs text-muted mb-1 inline-block" data-tip="${advTips.adx}">ADX (14)<i class="tip-icon">i</i></span>
+      <p class="text-lg font-bold font-mono ${adxColor}">${adxVal != null ? adxVal.toFixed(1) : '—'}</p>
+      ${adxNote ? `<div class="mt-1"><span class="text-xs font-bold ${adxColor}">${adxNote}</span></div>` : ''}
+    </div>
+    <div class="text-center">
+      <span class="tip text-xs text-muted mb-1 inline-block" data-tip="${advTips.obv}">OBV<i class="tip-icon">i</i></span>
+      <p class="text-lg font-bold font-mono text-ink">${d.obv != null ? fmtK(d.obv) : '—'}</p>
+    </div>
   `;
 }
 

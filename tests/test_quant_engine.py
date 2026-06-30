@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch
 
-from core.quant_engine import extract_quant_indicators, _safe
+from core.quant_engine import extract_quant_indicators, _safe, _obv
 
 
 # ── _safe() helper ────────────────────────────────────────────────────────────
@@ -38,13 +38,14 @@ def test_safe_returns_int_as_float():
 REQUIRED_KEYS = {
     "ticker", "latest_close", "sma_50", "sma_100", "sma_200",
     "rsi_14", "macd", "bollinger_bands", "fibonacci_levels",
+    "atr_14", "stochastic", "adx", "obv",
     "volume", "52_week_high", "52_week_low",
 }
 
 
 @pytest.fixture()
 def result(mock_ohlcv_df):
-    with patch("core.quant_engine.yf.download", return_value=mock_ohlcv_df):
+    with patch("core.data_providers.yf.download", return_value=mock_ohlcv_df):
         return extract_quant_indicators("AAPL")
 
 
@@ -53,7 +54,7 @@ def test_returns_required_keys(result):
 
 
 def test_ticker_uppercased(mock_ohlcv_df):
-    with patch("core.quant_engine.yf.download", return_value=mock_ohlcv_df):
+    with patch("core.data_providers.yf.download", return_value=mock_ohlcv_df):
         r = extract_quant_indicators("aapl")
     assert r["ticker"] == "AAPL"
 
@@ -106,11 +107,47 @@ def test_52_week_high_above_low(result):
     assert result["52_week_high"] > result["52_week_low"]
 
 
+# ── advanced indicators (ATR / Stochastic / ADX / OBV) ────────────────────────
+
+def test_atr_is_positive_float(result):
+    atr = result["atr_14"]
+    assert isinstance(atr, float)
+    assert atr > 0
+
+
+def test_stochastic_in_range(result):
+    stoch = result["stochastic"]
+    assert set(stoch.keys()) == {"k", "d"}
+    for key, val in stoch.items():
+        assert val is None or (0.0 <= val <= 100.0), f"stochastic.{key}={val} out of range"
+
+
+def test_adx_block_in_range(result):
+    adx = result["adx"]
+    assert set(adx.keys()) == {"adx", "plus_di", "minus_di"}
+    for key, val in adx.items():
+        assert val is None or (0.0 <= val <= 100.0), f"adx.{key}={val} out of range"
+
+
+def test_obv_is_float(result):
+    assert isinstance(result["obv"], float)
+
+
+def test_obv_rises_with_monotonic_closes():
+    """Strictly rising closes → every day adds +volume, so OBV is strictly increasing."""
+    close = pd.Series([10.0, 11.0, 12.0, 13.0, 14.0])
+    volume = pd.Series([100.0, 200.0, 150.0, 300.0, 250.0])
+    obv = _obv(close, volume)
+    # First diff is NaN → direction 0; subsequent up-days accumulate volume.
+    assert obv.tolist() == [0.0, 200.0, 350.0, 650.0, 900.0]
+    assert obv.is_monotonic_increasing
+
+
 # ── error cases ───────────────────────────────────────────────────────────────
 
 def test_empty_data_raises():
     empty_df = pd.DataFrame()
-    with patch("core.quant_engine.yf.download", return_value=empty_df):
+    with patch("core.data_providers.yf.download", return_value=empty_df):
         with pytest.raises(ValueError, match="No data returned"):
             extract_quant_indicators("FAKE")
 
@@ -127,6 +164,6 @@ def test_insufficient_data_raises():
         },
         index=dates,
     )
-    with patch("core.quant_engine.yf.download", return_value=small_df):
+    with patch("core.data_providers.yf.download", return_value=small_df):
         with pytest.raises(ValueError, match="Insufficient data"):
             extract_quant_indicators("NEW")
