@@ -6,6 +6,7 @@ function toggleTheme() {
   try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
   if (_currentChartTicker) loadChart(_currentChartTicker, _currentChartPeriod);
   if (_equityChart) loadEquityChart();
+  if (_mcChart) loadMonteCarlo();
 }
 
 /* ── Clock ──────────────────────────────────────────────────────────────── */
@@ -159,6 +160,8 @@ async function loadPortfolio() {
       tbody.innerHTML = '<tr><td colspan="9" class="text-center py-10 text-muted text-sm">No positions yet. Click "+ Record Trade" to get started.</td></tr>';
       summary.classList.add('hidden');
       document.getElementById('portfolio-insights').classList.add('hidden');
+      document.getElementById('montecarlo-card').classList.add('hidden');
+      document.getElementById('rebalance-card').classList.add('hidden');
       return;
     }
 
@@ -194,12 +197,16 @@ async function loadPortfolio() {
     loadPortfolioInsights();
     loadEquityChart();
     loadPortfolioRisk();
+    loadMonteCarlo();
+    loadRebalance();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-neg text-sm">${e.message}</td></tr>`;
     summary.classList.add('hidden');
     document.getElementById('portfolio-insights').classList.add('hidden');
     document.getElementById('equity-chart-card').classList.add('hidden');
     document.getElementById('risk-card').classList.add('hidden');
+    document.getElementById('montecarlo-card').classList.add('hidden');
+    document.getElementById('rebalance-card').classList.add('hidden');
   }
 }
 
@@ -310,6 +317,182 @@ async function loadPortfolioInsights() {
     }).join('');
   } catch (e) {
     wrap.classList.add('hidden');
+  }
+}
+
+/* ── Monte Carlo projection ─────────────────────────────────────────────────── */
+let _mcChart = null;
+
+async function loadMonteCarlo() {
+  const card = document.getElementById('montecarlo-card');
+  const el   = document.getElementById('mc-chart');
+  try {
+    const years   = Math.min(40, Math.max(1, parseInt(document.getElementById('mc-years').value, 10) || 10));
+    const sims    = Math.min(2000, Math.max(100, parseInt(document.getElementById('mc-sims').value, 10) || 500));
+    const contrib = Math.max(0, parseFloat(document.getElementById('mc-contrib').value) || 0);
+
+    const d = await apiFetch(`/api/portfolio/montecarlo?years=${years}&simulations=${sims}&contribution=${contrib}`);
+    if (!d.bands || !d.bands.p50 || !d.bands.p50.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    const s = d.summary;
+    const set = (id, txt) => { document.getElementById(id).textContent = txt; };
+    set('mc-median',   s.median_terminal_value != null ? `$${fmtK(s.median_terminal_value)}` : '—');
+    set('mc-p5',       s.p5_terminal_value != null ? `$${fmtK(s.p5_terminal_value)}` : '—');
+    set('mc-p95',      s.p95_terminal_value != null ? `$${fmtK(s.p95_terminal_value)}` : '—');
+    set('mc-invested', s.total_invested != null ? `$${fmtK(s.total_invested)}` : '—');
+    set('mc-probloss', s.prob_loss_pct != null ? `${s.prob_loss_pct.toFixed(1)}%` : '—');
+    set('mc-cagr',     s.median_cagr_pct != null ? `${s.median_cagr_pct >= 0 ? '+' : ''}${s.median_cagr_pct.toFixed(1)}%` : '—');
+
+    if (_mcChart) { _mcChart.remove(); _mcChart = null; }
+    const t = chartTheme();
+    _mcChart = LightweightCharts.createChart(el, {
+      layout: { background: { color: 'transparent' }, textColor: t.text },
+      grid:   { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      crosshair: { mode: 1 },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border, timeVisible: false },
+      height: 280,
+    });
+
+    const bandStyles = [
+      ['p95', { color: '#94a3b8', lineWidth: 1, lineStyle: 2 }],
+      ['p75', { color: '#0ea5e9', lineWidth: 1, lineStyle: 1 }],
+      ['p50', { color: '#6366f1', lineWidth: 2 }],
+      ['p25', { color: '#0ea5e9', lineWidth: 1, lineStyle: 1 }],
+      ['p5',  { color: '#94a3b8', lineWidth: 1, lineStyle: 2 }],
+    ];
+    for (const [band, style] of bandStyles) {
+      const series = _mcChart.addLineSeries({
+        ...style, priceLineVisible: false, lastValueVisible: band === 'p50',
+      });
+      series.setData(d.dates.map((dt, i) => ({ time: dt, value: d.bands[band][i] })));
+    }
+    _mcChart.timeScale().fitContent();
+  } catch (e) {
+    card.classList.add('hidden');
+  }
+}
+
+/* ── Target allocation & rebalancing ───────────────────────────────────────── */
+function rbActionBadge(action) {
+  if (!action) return '<span class="text-muted text-xs">—</span>';
+  const cls = {
+    BUY:  'text-pos bg-pos/10',
+    SELL: 'text-neg bg-neg/10',
+    HOLD: 'text-muted bg-surface2',
+  }[action] || 'text-muted bg-surface2';
+  return `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${cls}">${action}</span>`;
+}
+
+function rbSignedCell(val, prefix = '$', decimals = 2) {
+  if (val == null) return '<td class="px-2 py-2 text-right tabular-nums text-muted">—</td>';
+  const cls = val >= 0 ? 'text-pos' : 'text-neg';
+  const sign = val >= 0 ? '+' : '-';
+  return `<td class="px-2 py-2 text-right tabular-nums font-medium ${cls}">${sign}${prefix}${fmt(Math.abs(val), decimals)}</td>`;
+}
+
+async function loadRebalance() {
+  const card = document.getElementById('rebalance-card');
+  try {
+    const cash = Math.max(0, parseFloat(document.getElementById('rb-cash').value) || 0);
+    const [targets, plan] = await Promise.all([
+      apiFetch('/api/portfolio/targets'),
+      apiFetch(`/api/portfolio/rebalance?cash=${cash}`),
+    ]);
+    const savedTarget = Object.fromEntries(targets.map(t => [t.ticker, t.target_pct]));
+
+    let rows = plan.rows;
+    if (!rows.length) {
+      // No targets saved yet — seed editable rows from current holdings.
+      const total = _portfolioPositions.reduce((s, p) => s + (p.current_value || 0), 0);
+      rows = _portfolioPositions.map(p => ({
+        ticker: p.ticker,
+        current_pct: total > 0 && p.current_value != null ? (p.current_value / total) * 100 : null,
+        drift_pct: null, action: null, shares_delta: null, value_delta: null,
+      }));
+    }
+    if (!rows.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    document.getElementById('rb-body').innerHTML = rows.map(r => `
+      <tr class="border-b border-line last:border-0 hover:bg-surface2/60 transition">
+        <td class="px-2 py-2 font-mono font-semibold text-accent">${r.ticker}</td>
+        <td class="px-2 py-2 text-right tabular-nums text-ink">${r.current_pct != null ? r.current_pct.toFixed(1) + '%' : '—'}</td>
+        <td class="px-2 py-2 text-right">
+          <input type="number" min="0" max="100" step="0.5"
+                 class="rb-target w-20 bg-surface2 border border-line rounded-md px-2 py-1 text-xs text-ink text-right focus:outline-none focus:ring-2 focus:ring-accent"
+                 data-ticker="${r.ticker}" value="${savedTarget[r.ticker] ?? ''}" placeholder="—" />
+        </td>
+        ${r.drift_pct != null
+          ? `<td class="px-2 py-2 text-right tabular-nums font-medium ${r.drift_pct >= 0 ? 'text-pos' : 'text-neg'}">${r.drift_pct >= 0 ? '+' : ''}${r.drift_pct.toFixed(1)}%</td>`
+          : '<td class="px-2 py-2 text-right tabular-nums text-muted">—</td>'}
+        <td class="px-2 py-2 text-center">${rbActionBadge(r.action)}</td>
+        ${rbSignedCell(r.shares_delta, '', 4)}
+        ${rbSignedCell(r.value_delta)}
+      </tr>`).join('');
+
+    document.getElementById('rb-warnings').textContent = (plan.warnings || []).join(' ');
+    document.getElementById('rb-total').textContent =
+      plan.total_value != null ? `Total incl. cash: $${fmt(plan.total_value)}` : '';
+  } catch (e) {
+    card.classList.add('hidden');
+  }
+}
+
+async function saveTargets() {
+  const targets = [...document.querySelectorAll('.rb-target')]
+    .map(i => ({ ticker: i.dataset.ticker, target_pct: parseFloat(i.value) }))
+    .filter(t => Number.isFinite(t.target_pct) && t.target_pct > 0);
+
+  const sum = targets.reduce((s, t) => s + t.target_pct, 0);
+  if (targets.length && (sum < 99.5 || sum > 100.5)) {
+    showToast(`Targets must sum to ~100% (currently ${sum.toFixed(1)}%).`, 'error');
+    return;
+  }
+  try {
+    await apiFetch('/api/portfolio/targets', { method: 'PUT', body: JSON.stringify({ targets }) });
+    showToast(targets.length ? 'Targets saved.' : 'Targets cleared.', 'success');
+    loadRebalance();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+/* ── Dividend & earnings calendar ──────────────────────────────────────────── */
+function calendarPill(days) {
+  if (days === 0) return '<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold text-neg bg-neg/10">Today</span>';
+  if (days <= 7)  return `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold" style="color:#f59e0b;background:rgba(245,158,11,.12)">${days}d</span>`;
+  return `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold text-muted bg-surface2">${days}d</span>`;
+}
+
+async function loadCalendar() {
+  const card = document.getElementById('calendar-card');
+  const list = document.getElementById('calendar-list');
+  try {
+    const d = await apiFetch('/api/calendar');
+    if (!d.tickers_checked.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    document.getElementById('calendar-window').textContent = `next ${d.window_days} days`;
+
+    if (!d.events.length) {
+      list.innerHTML = `<p class="text-xs text-muted">No upcoming events in the next ${d.window_days} days.</p>`;
+      return;
+    }
+    const typeCls = {
+      earnings: 'text-accent bg-accent-soft',
+      ex_dividend: 'text-pos bg-pos/10',
+      dividend_payment: 'text-ink bg-surface2',
+    };
+    list.innerHTML = d.events.map(e => `
+      <div class="flex items-center gap-3 py-1.5 border-b border-line last:border-0">
+        <span class="font-mono text-xs text-muted w-24">${e.date}</span>
+        <button onclick="openFundamentalsFor('${e.ticker}')" class="font-mono text-xs font-semibold text-accent hover:underline w-16 text-left">${e.ticker}</button>
+        <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${typeCls[e.type] || 'text-muted bg-surface2'}">${e.label}${e.estimate ? ' (est.)' : ''}</span>
+        <span class="ml-auto">${calendarPill(e.days_until)}</span>
+      </div>`).join('');
+  } catch (e) {
+    card.classList.add('hidden');
   }
 }
 
@@ -1156,4 +1339,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
   loadWatchlist();
   loadLatestReport();
+  // Deliberately outside loadPortfolio(): the calendar also covers the
+  // watchlist, so it should render even when the portfolio is empty.
+  loadCalendar();
 });

@@ -175,6 +175,149 @@ def test_portfolio_risk_empty_portfolio(client, monkeypatch):
     assert resp.json()["positions"] == []
 
 
+# ── /api/portfolio/montecarlo ────────────────────────────────────────────────
+
+def test_montecarlo_route(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "_close_series", _synthetic_close)
+
+    resp = client.get("/api/portfolio/montecarlo?years=2&simulations=100&contribution=50")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["years"] == 2
+    assert data["simulations"] == 100
+    assert data["monthly_contribution"] == 50.0
+    assert set(data["bands"]) == {"p5", "p25", "p50", "p75", "p95"}
+    assert len(data["dates"]) == len(data["bands"]["p50"]) > 0
+    assert data["summary"]["median_terminal_value"] is not None
+
+
+def test_montecarlo_params_clamped(client):
+    assert client.get("/api/portfolio/montecarlo?simulations=999999").status_code == 400
+    assert client.get("/api/portfolio/montecarlo?years=0").status_code == 400
+    assert client.get("/api/portfolio/montecarlo?contribution=-1").status_code == 400
+
+
+def test_montecarlo_empty_portfolio(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "get_all_positions", lambda: [])
+    resp = client.get("/api/portfolio/montecarlo")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["dates"] == []
+    assert data["summary"]["median_terminal_value"] is None
+
+
+# ── /api/portfolio/targets + /api/portfolio/rebalance ───────────────────────
+
+def test_put_and_get_targets_roundtrip(client):
+    resp = client.put("/api/portfolio/targets", json={
+        "targets": [{"ticker": "aapl", "target_pct": 60.0},
+                    {"ticker": "MSFT", "target_pct": 40.0}],
+    })
+    assert resp.status_code == 200
+    saved = client.get("/api/portfolio/targets").json()
+    assert [(r["ticker"], r["target_pct"]) for r in saved] == [("AAPL", 60.0), ("MSFT", 40.0)]
+
+
+def test_put_targets_bad_sum_rejected(client):
+    resp = client.put("/api/portfolio/targets", json={
+        "targets": [{"ticker": "AAPL", "target_pct": 50.0},
+                    {"ticker": "MSFT", "target_pct": 30.0}],
+    })
+    assert resp.status_code == 422
+
+
+def test_put_targets_duplicate_ticker_rejected(client):
+    resp = client.put("/api/portfolio/targets", json={
+        "targets": [{"ticker": "AAPL", "target_pct": 50.0},
+                    {"ticker": "aapl", "target_pct": 50.0}],
+    })
+    assert resp.status_code == 422
+
+
+def test_put_targets_empty_list_clears(client):
+    client.put("/api/portfolio/targets", json={
+        "targets": [{"ticker": "AAPL", "target_pct": 100.0}],
+    })
+    resp = client.put("/api/portfolio/targets", json={"targets": []})
+    assert resp.status_code == 200
+    assert client.get("/api/portfolio/targets").json() == []
+
+
+def test_rebalance_route(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "_latest_price", lambda t: 200.0)
+
+    client.put("/api/portfolio/targets", json={
+        "targets": [{"ticker": "AAPL", "target_pct": 50.0},
+                    {"ticker": "MSFT", "target_pct": 50.0}],
+    })
+    resp = client.get("/api/portfolio/rebalance?cash=1000")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cash"] == 1000.0
+    tickers = {r["ticker"] for r in data["rows"]}
+    # Union of held (AAPL/MSFT/NVDA fixtures) and targeted tickers.
+    assert tickers == {"AAPL", "MSFT", "NVDA"}
+    nvda = next(r for r in data["rows"] if r["ticker"] == "NVDA")
+    assert nvda["target_pct"] == 0.0
+    assert nvda["action"] == "SELL"
+    for key in ("current_pct", "drift_pct", "shares_delta", "value_delta"):
+        assert key in data["rows"][0]
+
+
+def test_rebalance_no_targets_returns_empty_plan(client):
+    resp = client.get("/api/portfolio/rebalance")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["rows"] == []
+    assert data["warnings"] == ["No target allocations set."]
+
+
+def test_rebalance_negative_cash_rejected(client):
+    resp = client.get("/api/portfolio/rebalance?cash=-5")
+    assert resp.status_code == 400
+
+
+# ── /api/calendar ─────────────────────────────────────────────────────────────
+
+def test_calendar_route_unions_portfolio_and_watchlist(client, monkeypatch):
+    from datetime import date, timedelta
+    import main as app_module
+    monkeypatch.setattr(app_module, "_CAL_CACHE", {})
+
+    soon = (date.today() + timedelta(days=10)).isoformat()
+
+    def fake_events(ticker):
+        if ticker == "TSLA":
+            return None  # simulate a failed fetch
+        return [{"ticker": ticker, "type": "earnings", "date": soon, "estimate": False}]
+
+    monkeypatch.setattr(app_module, "_safe_calendar_events", fake_events)
+
+    resp = client.get("/api/calendar")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Union of POSITIONS (AAPL/MSFT/NVDA) and WATCHLIST_ROWS (GOOGL/AMZN/TSLA).
+    assert data["tickers_checked"] == ["AAPL", "AMZN", "GOOGL", "MSFT", "NVDA", "TSLA"]
+    assert data["tickers_with_no_data"] == ["TSLA"]
+    assert len(data["events"]) == 5
+    assert all(e["days_until"] == 10 for e in data["events"])
+    assert data["events"] == sorted(data["events"], key=lambda e: (e["date"], e["ticker"]))
+
+
+def test_calendar_route_empty_universe(client, monkeypatch):
+    import main as app_module
+    monkeypatch.setattr(app_module, "get_all_positions", lambda: [])
+    monkeypatch.setattr(app_module, "get_watchlist", lambda: [])
+    resp = client.get("/api/calendar")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["events"] == []
+    assert data["tickers_checked"] == []
+
+
 # ── graceful degradation ──────────────────────────────────────────────────────
 
 def test_enriched_one_bad_ticker_returns_none_fallback(client, monkeypatch):
