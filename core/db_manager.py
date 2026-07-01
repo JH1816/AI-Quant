@@ -41,6 +41,13 @@ def init_db():
                 trade_date  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS target_allocations (
+                ticker      TEXT PRIMARY KEY,
+                target_pct  REAL NOT NULL CHECK (target_pct > 0 AND target_pct <= 100),
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
 
         # One-time migration: seed legacy portfolio rows as opening BUYs.
@@ -141,6 +148,31 @@ def remove_position(ticker: str):
     ticker = ticker.upper()
     with _connect() as conn:
         conn.execute("DELETE FROM transactions WHERE ticker = ?", (ticker,))
+        conn.commit()
+
+
+# ── Target allocations ────────────────────────────────────────────────────────
+
+def get_target_allocations() -> list[dict]:
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT ticker, target_pct, updated_at FROM target_allocations ORDER BY ticker"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_target_allocations(targets: list[tuple[str, float]]):
+    """Replace the full target set in one transaction (PUT semantics).
+
+    Omitting a ticker deletes its target; an empty list clears all targets.
+    """
+    with _connect() as conn:
+        conn.execute("DELETE FROM target_allocations")
+        conn.executemany(
+            "INSERT INTO target_allocations (ticker, target_pct) VALUES (?, ?)",
+            [(t.upper(), pct) for t, pct in targets],
+        )
         conn.commit()
 
 

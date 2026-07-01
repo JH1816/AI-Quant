@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import time
 import asyncio
 from datetime import datetime, timezone, date as date_type
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ from core.db_manager import (
     init_db, add_position, remove_position, get_all_positions,
     add_to_watchlist, remove_from_watchlist, get_watchlist,
     add_transaction, get_transactions, delete_transaction,
+    get_target_allocations, set_target_allocations,
 )
 from core.cost_basis import compute_holding
 from core.quant_engine import extract_quant_indicators, _safe, _sma, _fetch_ohlcv
@@ -26,6 +28,10 @@ from core.fundamentals_engine import extract_fundamentals
 from core.portfolio_insights import build_portfolio_insights
 from core.risk_engine import compute_portfolio_risk, DEFAULT_BENCHMARK
 from core.comparison import build_comparison
+from core.rebalance import build_rebalance_plan, empty_plan
+from core.monte_carlo import simulate_portfolio
+from core.calendar_engine import normalize_ticker_events, build_calendar
+from core import data_providers
 from agents.quant_agent import analyze_ticker
 from agents.reporter_agent import generate_portfolio_report
 
@@ -173,6 +179,43 @@ class TransactionIn(BaseModel):
         return v
 
 
+class TargetRow(BaseModel):
+    ticker: str
+    target_pct: float
+
+    @field_validator('ticker')
+    @classmethod
+    def normalize_ticker(cls, v: str) -> str:
+        v = v.strip().upper()
+        if not v:
+            raise ValueError("ticker is required.")
+        return v
+
+    @field_validator('target_pct')
+    @classmethod
+    def check_target_pct(cls, v: float) -> float:
+        v = _positive_finite(v, "target_pct")
+        if v > 100:
+            raise ValueError("target_pct cannot exceed 100.")
+        return v
+
+
+class TargetsIn(BaseModel):
+    targets: list[TargetRow]
+
+    @model_validator(mode='after')
+    def check_targets(self):
+        tickers = [t.ticker for t in self.targets]
+        if len(tickers) != len(set(tickers)):
+            raise ValueError("Duplicate tickers in targets.")
+        # An empty list clears all targets; otherwise weights must be ≈ 100%.
+        if self.targets:
+            total = sum(t.target_pct for t in self.targets)
+            if not (99.5 <= total <= 100.5):
+                raise ValueError(f"Targets must sum to ~100% (got {total:.1f}%).")
+        return self
+
+
 # ─── Concurrency helpers ──────────────────────────────────────────────────────
 # The per-ticker data functions (extract_quant_indicators / extract_fundamentals)
 # are synchronous, blocking yfinance calls. Fanning them out across the default
@@ -190,6 +233,15 @@ def _close_series(ticker: str, period: str = "1y") -> pd.Series:
     if df.empty:
         return pd.Series(dtype=float)
     return df["Close"]
+
+
+def _latest_price(ticker: str) -> float | None:
+    """Blocking last-close fetch, or None on failure (thread fan-out helper)."""
+    try:
+        s = _close_series(ticker, "1mo")
+        return _safe(s.iloc[-1]) if not s.empty else None
+    except Exception:
+        return None
 
 
 def _enrich_position(pos: dict) -> dict:
@@ -230,6 +282,33 @@ def _safe_indicators(ticker: str) -> dict:
         return extract_quant_indicators(ticker)
     except Exception as exc:
         return {"error": str(exc)}
+
+
+# Calendar dates change rarely, but yfinance's .calendar is an uncached network
+# call — cache the *normalized* rows for an hour (mirrors _FUND_CACHE).
+_CAL_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_CAL_TTL = 3600  # seconds
+
+
+def _safe_calendar_events(ticker: str) -> list[dict] | None:
+    """Blocking per-ticker calendar fetch → normalized event rows, None on failure."""
+    now = time.time()
+    cached = _CAL_CACHE.get(ticker)
+    if cached and (now - cached[0]) < _CAL_TTL:
+        return cached[1]
+    try:
+        tk = data_providers.get_fundamentals_source(ticker)
+        # Non-Yahoo providers (Alpha Vantage adapter, Stooq) expose no calendar.
+        cal = getattr(tk, "calendar", None)
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
+        events = normalize_ticker_events(ticker, cal, info)
+        _CAL_CACHE[ticker] = (now, events)
+        return events
+    except Exception:
+        return None
 
 
 def _enrich_watchlist_row(row: dict) -> dict:
@@ -362,6 +441,66 @@ async def get_portfolio_risk():
     )
 
 
+@app.get("/api/portfolio/montecarlo")
+async def portfolio_montecarlo(years: int = 10, simulations: int = 500,
+                               contribution: float = 0.0):
+    """Bootstrap Monte Carlo projection of future portfolio value."""
+    # Clamp the workload — unchecked query params could pin the CPU.
+    if not 1 <= years <= 40:
+        raise HTTPException(status_code=400, detail="years must be between 1 and 40.")
+    if not 100 <= simulations <= 2000:
+        raise HTTPException(status_code=400, detail="simulations must be between 100 and 2000.")
+    if not math.isfinite(contribution) or contribution < 0:
+        raise HTTPException(status_code=400, detail="contribution must be a non-negative number.")
+
+    positions = get_all_positions()
+    if not positions:
+        return simulate_portfolio([], {}, years=years, simulations=simulations,
+                                  monthly_contribution=contribution)
+
+    tickers = [p["ticker"] for p in positions]
+    # 2y history gives the bootstrap a richer return sample than the 1y default.
+    series = await asyncio.gather(
+        *(asyncio.to_thread(_close_series, t, "2y") for t in tickers)
+    )
+    close_by_ticker = {t: s for t, s in zip(tickers, series) if not s.empty}
+    # The simulation itself is CPU-bound numpy work — keep it off the event loop.
+    return await asyncio.to_thread(
+        simulate_portfolio, positions, close_by_ticker,
+        years=years, simulations=simulations, monthly_contribution=contribution,
+    )
+
+
+@app.get("/api/portfolio/targets")
+async def list_targets():
+    return get_target_allocations()
+
+
+@app.put("/api/portfolio/targets")
+async def save_targets(body: TargetsIn):
+    set_target_allocations([(t.ticker, t.target_pct) for t in body.targets])
+    return {"message": "Targets saved.", "targets": get_target_allocations()}
+
+
+@app.get("/api/portfolio/rebalance")
+async def get_rebalance(cash: float = 0.0):
+    """Drift vs target weights plus the trades that would restore them."""
+    if not math.isfinite(cash) or cash < 0:
+        raise HTTPException(status_code=400, detail="cash must be a non-negative number.")
+
+    targets = {r["ticker"]: r["target_pct"] for r in get_target_allocations()}
+    positions = get_all_positions()
+    if not targets:
+        return empty_plan(cash, ["No target allocations set."])
+
+    # Price the union of held and targeted tickers in one concurrent fan-out.
+    tickers = sorted({p["ticker"] for p in positions} | set(targets))
+    prices = await _gather_blocking(_latest_price, tickers)
+    price_by_ticker = dict(zip(tickers, prices))
+
+    return build_rebalance_plan(positions, price_by_ticker, targets, cash)
+
+
 @app.get("/api/compare")
 async def compare_tickers(tickers: str):
     """Side-by-side fundamentals comparison for up to 4 comma-separated tickers."""
@@ -462,6 +601,17 @@ async def delete_watchlist_item(ticker: str):
     ticker = ticker.strip().upper()
     remove_from_watchlist(ticker)
     return {"message": f"{ticker.upper()} removed from watchlist."}
+
+
+@app.get("/api/calendar")
+async def get_calendar():
+    """Upcoming dividend & earnings events for holdings + watchlist tickers."""
+    tickers = sorted(
+        {p["ticker"] for p in get_all_positions()} |
+        {w["ticker"] for w in get_watchlist()}
+    )
+    results = await _gather_blocking(_safe_calendar_events, tickers)
+    return build_calendar(dict(zip(tickers, results)), date_type.today())
 
 
 @app.get("/api/chart/{ticker}")

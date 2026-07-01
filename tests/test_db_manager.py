@@ -166,3 +166,46 @@ def test_remove_from_watchlist(tmp_db):
 
 def test_remove_nonexistent_watchlist_is_noop(tmp_db):
     dbm.remove_from_watchlist("NOPE")  # should not raise
+
+
+# ── Target allocations ────────────────────────────────────────────────────────
+
+def test_init_db_creates_target_allocations_table(tmp_db):
+    with sqlite3.connect(tmp_db) as conn:
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='target_allocations'"
+        ).fetchall()
+    assert len(tables) == 1
+
+
+def test_set_and_get_target_allocations_roundtrip(tmp_db):
+    dbm.set_target_allocations([("AAPL", 60.0), ("MSFT", 40.0)])
+    rows = dbm.get_target_allocations()
+    assert [(r["ticker"], r["target_pct"]) for r in rows] == [("AAPL", 60.0), ("MSFT", 40.0)]
+
+
+def test_set_target_allocations_replaces_all(tmp_db):
+    dbm.set_target_allocations([("AAPL", 60.0), ("MSFT", 40.0)])
+    dbm.set_target_allocations([("NVDA", 100.0)])  # omitted tickers are removed
+    rows = dbm.get_target_allocations()
+    assert [(r["ticker"], r["target_pct"]) for r in rows] == [("NVDA", 100.0)]
+
+
+def test_set_target_allocations_empty_clears(tmp_db):
+    dbm.set_target_allocations([("AAPL", 100.0)])
+    dbm.set_target_allocations([])
+    assert dbm.get_target_allocations() == []
+
+
+def test_target_allocation_ticker_uppercased(tmp_db):
+    dbm.set_target_allocations([("aapl", 100.0)])
+    assert dbm.get_target_allocations()[0]["ticker"] == "AAPL"
+
+
+def test_target_allocation_rejects_nonpositive_pct(tmp_db):
+    with pytest.raises(sqlite3.IntegrityError):
+        dbm.set_target_allocations([("AAPL", 0.0)])
+    with pytest.raises(sqlite3.IntegrityError):
+        dbm.set_target_allocations([("AAPL", -5.0)])
+    with pytest.raises(sqlite3.IntegrityError):
+        dbm.set_target_allocations([("AAPL", 101.0)])

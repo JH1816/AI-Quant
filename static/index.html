@@ -318,6 +318,94 @@
         </div>
       </div>
     </div>
+
+    <!-- Monte Carlo projection -->
+    <div id="montecarlo-card" class="hidden bg-surface border border-line rounded-xl p-5 card-shadow mt-6">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <h3 class="tip text-sm font-semibold text-ink" data-tip="Bootstrap simulation: each future month re-samples your portfolio's actual daily returns, so fat tails carry through. Assumes history repeats statistically — ignores volatility regimes and return streaks.">Monte Carlo Projection<i class="tip-icon">i</i></h3>
+        <div class="flex items-center gap-2 text-xs flex-wrap">
+          <label class="text-muted" for="mc-years">Years</label>
+          <input id="mc-years" type="number" min="1" max="40" step="1" value="10" class="w-16 bg-surface2 border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+          <label class="text-muted" for="mc-sims">Simulations</label>
+          <input id="mc-sims" type="number" min="100" max="2000" step="100" value="500" class="w-20 bg-surface2 border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+          <label class="text-muted" for="mc-contrib">Monthly $</label>
+          <input id="mc-contrib" type="number" min="0" step="50" value="0" class="w-20 bg-surface2 border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+          <button onclick="loadMonteCarlo()" class="px-3 py-1.5 rounded-lg bg-accent hover:opacity-90 text-white text-xs font-medium transition">Run</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Half of the simulated futures end above this value, half below.">Median Outcome<i class="tip-icon">i</i></p>
+          <p id="mc-median" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="A bad outcome: only 5% of simulations end below this value.">Pessimistic (p5)<i class="tip-icon">i</i></p>
+          <p id="mc-p5" class="text-lg font-bold font-mono text-neg mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="A great outcome: only 5% of simulations end above this value.">Optimistic (p95)<i class="tip-icon">i</i></p>
+          <p id="mc-p95" class="text-lg font-bold font-mono text-pos mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Current portfolio value plus all future monthly contributions over the horizon.">Total Invested<i class="tip-icon">i</i></p>
+          <p id="mc-invested" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Share of simulations that end below the total amount invested.">Prob. of Loss<i class="tip-icon">i</i></p>
+          <p id="mc-probloss" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+        <div class="bg-surface2 rounded-lg p-3 text-center">
+          <p class="tip text-xs text-muted" data-tip="Annualised growth rate implied by the median outcome (approximate when contributing monthly).">Median CAGR<i class="tip-icon">i</i></p>
+          <p id="mc-cagr" class="text-lg font-bold font-mono text-ink mt-1">—</p>
+        </div>
+      </div>
+      <div id="mc-chart" style="height:280px;"></div>
+      <div class="flex gap-4 mt-3 text-xs text-muted flex-wrap">
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 rounded bg-[#6366f1]"></span>Median (p50)</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 rounded bg-[#0ea5e9]"></span>p25 – p75</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 rounded bg-[#94a3b8]"></span>p5 – p95</span>
+      </div>
+    </div>
+
+    <!-- Target allocation & rebalancing -->
+    <div id="rebalance-card" class="hidden bg-surface border border-line rounded-xl p-5 card-shadow mt-6">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <h3 class="tip text-sm font-semibold text-ink" data-tip="Set a target weight per ticker (must sum to ~100%). Drift compares today's actual weights against the targets; the suggested trades restore them, deploying any new cash proportionally.">Target Allocation &amp; Rebalancing<i class="tip-icon">i</i></h3>
+        <div class="flex items-center gap-2 text-xs">
+          <label class="text-muted" for="rb-cash">Cash to invest $</label>
+          <input id="rb-cash" type="number" min="0" step="100" value="0" class="w-24 bg-surface2 border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+          <button onclick="loadRebalance()" class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface2 text-ink text-xs font-medium transition">Recompute</button>
+          <button onclick="saveTargets()" class="px-3 py-1.5 rounded-lg bg-accent hover:opacity-90 text-white text-xs font-medium transition">Save Targets</button>
+        </div>
+      </div>
+      <p class="text-xs text-muted mb-4">Holdings without a target are treated as a full SELL suggestion. <span id="rb-total" class="font-mono"></span></p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-line text-muted text-xs uppercase tracking-wide">
+              <th class="px-2 py-2 text-left">Ticker</th>
+              <th class="px-2 py-2 text-right">Current %</th>
+              <th class="px-2 py-2 text-right">Target %</th>
+              <th class="px-2 py-2 text-right">Drift</th>
+              <th class="px-2 py-2 text-center">Action</th>
+              <th class="px-2 py-2 text-right">Shares Δ</th>
+              <th class="px-2 py-2 text-right">Value Δ</th>
+            </tr>
+          </thead>
+          <tbody id="rb-body"></tbody>
+        </table>
+      </div>
+      <p id="rb-warnings" class="text-xs text-neg mt-3"></p>
+    </div>
+
+    <!-- Dividend & earnings calendar -->
+    <div id="calendar-card" class="hidden bg-surface border border-line rounded-xl p-5 card-shadow mt-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="tip text-sm font-semibold text-ink" data-tip="Upcoming earnings, ex-dividend and dividend payment dates across your holdings and watchlist. Buy before the ex-dividend date to receive the dividend. Dates marked 'est.' are ranges published by the company.">Dividend &amp; Earnings Calendar<i class="tip-icon">i</i></h3>
+        <span id="calendar-window" class="text-xs text-muted"></span>
+      </div>
+      <div id="calendar-list" class="space-y-2"></div>
+    </div>
   </div>
 
   <!-- ══ RESEARCH SECTION ═══════════════════════════════════════════════ -->
